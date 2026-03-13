@@ -1,0 +1,1158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GitHub Universe</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100%;height:100%;overflow:hidden;background:#02030c;font-family:'SF Mono',ui-monospace,monospace}
+canvas{position:fixed;inset:0;display:block;width:100%;height:100%}
+#ui{position:fixed;inset:0;pointer-events:none}
+
+/* ── HUD TOP LEFT ── */
+#hdr{position:absolute;top:22px;left:26px}
+#hdr-title{font-size:16px;font-weight:700;color:rgba(255,255,255,.9);letter-spacing:4px;text-transform:uppercase}
+#hdr-sub{font-size:9px;color:rgba(255,255,255,.25);letter-spacing:2.5px;margin-top:4px;text-transform:uppercase}
+#breadcrumb{margin-top:10px;display:flex;align-items:center;gap:6px;font-size:10px;color:rgba(255,255,255,.3);flex-wrap:wrap}
+.bc-item{cursor:pointer;pointer-events:all;transition:color .2s;padding:2px 0}
+.bc-item:hover{color:rgba(255,255,255,.8)}
+.bc-item.active{color:rgba(180,220,255,.9)}
+.bc-sep{color:rgba(255,255,255,.15);font-size:10px}
+
+/* ── LEVEL INDICATOR ── */
+#level-badge{
+  position:absolute;top:22px;left:50%;transform:translateX(-50%);
+  display:flex;gap:6px;align-items:center;pointer-events:none;
+}
+.lv-dot{
+  width:28px;height:4px;border-radius:2px;background:rgba(255,255,255,.1);transition:all .4s;
+}
+.lv-dot.active{background:rgba(140,190,255,.8);width:36px}
+
+/* ── CONTROLS TOP RIGHT ── */
+#ctrl-bar{
+  position:absolute;top:22px;right:20px;
+  display:flex;flex-direction:column;gap:8px;
+  pointer-events:all;
+}
+.ctrl-btn{
+  width:34px;height:34px;border-radius:50%;
+  background:rgba(2,3,12,.75);border:1px solid rgba(255,255,255,.1);
+  color:rgba(255,255,255,.5);font-size:15px;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;
+  transition:all .2s;backdrop-filter:blur(8px);
+}
+.ctrl-btn:hover{background:rgba(255,255,255,.1);color:#fff;border-color:rgba(255,255,255,.25)}
+
+/* ── TOKEN PANEL ── */
+#token-panel{
+  position:absolute;top:100px;right:20px;
+  background:rgba(2,3,12,.88);
+  border:1px solid rgba(255,255,255,.09);
+  border-radius:12px;padding:14px 16px;
+  width:260px;pointer-events:all;
+  backdrop-filter:blur(16px);
+}
+#token-panel h3{font-size:9px;color:rgba(255,255,255,.4);letter-spacing:2.5px;text-transform:uppercase;margin-bottom:10px}
+.tp-field{margin-bottom:8px}
+.tp-label{font-size:8px;color:rgba(255,255,255,.28);letter-spacing:1.5px;text-transform:uppercase;margin-bottom:4px}
+.tp-input{
+  width:100%;background:rgba(255,255,255,.04);
+  border:1px solid rgba(255,255,255,.08);border-radius:6px;
+  color:rgba(255,255,255,.85);font-family:inherit;font-size:10px;
+  padding:6px 9px;outline:none;transition:border-color .2s;
+}
+.tp-input:focus{border-color:rgba(100,160,255,.4)}
+.tp-input::placeholder{color:rgba(255,255,255,.18)}
+#tp-btn{
+  width:100%;margin-top:8px;
+  background:rgba(80,130,255,.14);border:1px solid rgba(80,130,255,.28);
+  border-radius:6px;color:rgba(160,195,255,.9);font-family:inherit;
+  font-size:10px;padding:7px;cursor:pointer;letter-spacing:1.5px;text-transform:uppercase;
+  transition:all .2s;
+}
+#tp-btn:hover{background:rgba(80,130,255,.25)}
+#tp-btn:disabled{opacity:.4;cursor:not-allowed}
+#tp-status{margin-top:7px;font-size:9px;color:rgba(255,255,255,.28);text-align:center;min-height:13px;letter-spacing:.5px}
+#tp-status.ok{color:rgba(80,210,120,.7)}
+#tp-status.err{color:rgba(220,90,90,.7)}
+#rate-wrap{margin-top:8px;display:none}
+.rate-row{display:flex;justify-content:space-between;font-size:8px;color:rgba(255,255,255,.25);margin-bottom:4px;letter-spacing:.5px}
+.rate-track{height:2px;background:rgba(255,255,255,.07);border-radius:1px;overflow:hidden}
+.rate-fill{height:100%;border-radius:1px;background:linear-gradient(90deg,#3a8f60,#6ab832);transition:width .5s}
+
+/* ── TOOLTIP ── */
+#tooltip{
+  position:fixed;
+  background:rgba(2,3,12,.95);
+  border:1px solid rgba(255,255,255,.12);
+  border-radius:12px;padding:14px 16px;
+  pointer-events:none;display:none;
+  min-width:200px;max-width:260px;
+  backdrop-filter:blur(18px);
+  box-shadow:0 24px 64px rgba(0,0,0,.7);
+  z-index:200;font-size:11px;
+}
+#tt-name{font-size:14px;font-weight:700;color:#fff;margin-bottom:8px;letter-spacing:.5px}
+.tt-flag{font-size:18px;margin-right:6px}
+.tt-row{display:flex;justify-content:space-between;margin-top:4px;padding-top:4px;border-top:1px solid rgba(255,255,255,.05)}
+.tt-k{font-size:9px;color:rgba(255,255,255,.3);letter-spacing:1.5px;text-transform:uppercase}
+.tt-v{font-size:10px;color:rgba(255,255,255,.8);text-align:right}
+.tt-hint{margin-top:8px;font-size:9px;color:rgba(140,180,255,.5);text-align:center;letter-spacing:1px}
+.tt-langs{display:flex;gap:5px;flex-wrap:wrap;margin-top:6px}
+.tt-lang-dot{display:flex;align-items:center;gap:3px;font-size:8px;color:rgba(255,255,255,.4)}
+.tt-ld{width:6px;height:6px;border-radius:50%}
+
+/* ── UNIVERSE OVERVIEW BAR ── */
+#overview{
+  position:absolute;bottom:22px;left:50%;transform:translateX(-50%);
+  background:rgba(2,3,12,.82);border:1px solid rgba(255,255,255,.09);
+  border-radius:16px;backdrop-filter:blur(16px);
+  pointer-events:none;overflow:hidden;min-width:540px;
+}
+#ov-header{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:9px 18px 7px;border-bottom:1px solid rgba(255,255,255,.05);
+}
+#ov-title{font-size:8px;color:rgba(255,255,255,.25);letter-spacing:3px;text-transform:uppercase}
+#ov-live{display:flex;align-items:center;gap:5px;font-size:8px;color:rgba(100,200,140,.5);letter-spacing:2px;text-transform:uppercase}
+.ov-dot{width:5px;height:5px;border-radius:50%;background:rgba(100,200,140,.7);animation:ovPulse 2.2s ease-in-out infinite}
+@keyframes ovPulse{0%,100%{opacity:.35;transform:scale(.8)}50%{opacity:1;transform:scale(1.2)}}
+#ov-metrics{display:flex}
+.ovm{flex:1;padding:11px 14px 13px;text-align:center;border-right:1px solid rgba(255,255,255,.05)}
+.ovm:last-child{border-right:none}
+.ovm-val{font-size:20px;font-weight:700;line-height:1;letter-spacing:-1px;font-variant-numeric:tabular-nums}
+.ovm-lbl{font-size:7px;color:rgba(255,255,255,.22);letter-spacing:2px;text-transform:uppercase;margin-top:4px}
+.ovm-sub{font-size:8px;color:rgba(255,255,255,.18);margin-top:2px}
+.ovm-bar{height:1.5px;margin-top:7px;background:rgba(255,255,255,.06);border-radius:1px;overflow:hidden}
+.ovm-fill{height:100%;border-radius:1px;transition:width .8s ease}
+#ov-bottom{
+  border-top:1px solid rgba(255,255,255,.05);
+  padding:7px 18px;display:flex;gap:14px;align-items:center;
+}
+.cont-chip{font-size:8px;color:rgba(255,255,255,.28);letter-spacing:.5px;display:flex;align-items:center;gap:4px;cursor:pointer;pointer-events:all;transition:color .15s;padding:2px 0}
+.cont-chip:hover{color:rgba(255,255,255,.65)}
+.cont-chip.active{color:rgba(180,220,255,.85)}
+.cont-dot{width:5px;height:5px;border-radius:50%;flex-shrink:0}
+
+@media(max-width:640px){
+  #overview{min-width:calc(100vw - 28px);bottom:14px}
+  .ovm-val{font-size:15px}
+  .ovm{padding:9px 8px 11px}
+  #ov-bottom{display:none}
+  #token-panel{width:calc(100vw - 40px);right:16px;top:auto;bottom:160px}
+}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="ui">
+  <div id="hdr">
+    <div id="hdr-title">GitHub Universe</div>
+    <div id="hdr-sub">public repositories · mapped by country</div>
+    <div id="breadcrumb"><span class="bc-item active" id="bc-galaxy">Galaxy</span></div>
+  </div>
+
+  <div id="level-badge">
+    <div class="lv-dot active" title="Galaxy view"></div>
+    <div class="lv-dot" title="Country view"></div>
+    <div class="lv-dot" title="Repository view"></div>
+  </div>
+
+  <div id="ctrl-bar">
+    <button class="ctrl-btn" id="btn-back" title="Back" style="display:none">←</button>
+    <button class="ctrl-btn" id="btn-zoom-in" title="Zoom in">+</button>
+    <button class="ctrl-btn" id="btn-zoom-out" title="Zoom out">−</button>
+    <button class="ctrl-btn" id="btn-reset" title="Reset view">⌖</button>
+    <button class="ctrl-btn" id="btn-pause" title="Pause">⏸</button>
+    <button class="ctrl-btn" id="btn-token" title="GitHub token">⚙</button>
+  </div>
+
+  <div id="token-panel" style="display:none">
+    <h3>Filter Universe</h3>
+    <div class="tp-field">
+      <div class="tp-label">Continent</div>
+      <select class="tp-input" id="tp-continent">
+        <option value="">All continents</option>
+        <option value="AS">Asia</option>
+        <option value="EU">Europe</option>
+        <option value="NA">North America</option>
+        <option value="SA">South America</option>
+        <option value="AF">Africa</option>
+        <option value="OC">Oceania</option>
+      </select>
+    </div>
+    <button id="tp-btn">Apply filter</button>
+    <div id="tp-status">static data · no API calls needed</div>
+    <div id="rate-wrap" style="display:none">
+      <div class="rate-row"><span id="rate-lbl">Data</span><span id="rate-num">—</span></div>
+      <div class="rate-track"><div class="rate-fill" id="rate-fill" style="width:100%"></div></div>
+    </div>
+  </div>
+
+  <div id="tooltip">
+    <div id="tt-name"></div>
+    <div id="tt-rows"></div>
+    <div class="tt-langs" id="tt-langs"></div>
+    <div class="tt-hint" id="tt-hint"></div>
+  </div>
+
+  <div id="overview">
+    <div id="ov-header">
+      <span id="ov-title">Universe Overview</span>
+      <span id="ov-live"><span class="ov-dot"></span>live</span>
+    </div>
+    <div id="ov-metrics">
+      <div class="ovm">
+        <div class="ovm-val" id="ov-countries" style="color:rgba(100,170,255,.9)">—</div>
+        <div class="ovm-lbl">Countries</div>
+        <div class="ovm-sub" id="ov-countries-sub">universes</div>
+        <div class="ovm-bar"><div class="ovm-fill" id="ov-countries-bar" style="width:100%;background:rgba(100,170,255,.5)"></div></div>
+      </div>
+      <div class="ovm">
+        <div class="ovm-val" id="ov-repos" style="color:rgba(80,210,140,.9)">—</div>
+        <div class="ovm-lbl">Public Repos</div>
+        <div class="ovm-sub" id="ov-repos-sub">sampled</div>
+        <div class="ovm-bar"><div class="ovm-fill" id="ov-repos-bar" style="width:100%;background:rgba(80,210,140,.5)"></div></div>
+      </div>
+      <div class="ovm">
+        <div class="ovm-val" id="ov-stars" style="color:rgba(255,190,60,.9)">—</div>
+        <div class="ovm-lbl">GitHub Stars</div>
+        <div class="ovm-sub" id="ov-stars-sub">combined</div>
+        <div class="ovm-bar"><div class="ovm-fill" id="ov-stars-bar" style="width:100%;background:rgba(255,190,60,.5)"></div></div>
+      </div>
+      <div class="ovm">
+        <div class="ovm-val" id="ov-devs" style="color:rgba(180,120,255,.9)">—</div>
+        <div class="ovm-lbl">Contributors</div>
+        <div class="ovm-sub" id="ov-devs-sub">unique</div>
+        <div class="ovm-bar"><div class="ovm-fill" id="ov-devs-bar" style="width:100%;background:rgba(180,120,255,.5)"></div></div>
+      </div>
+      <div class="ovm">
+        <div class="ovm-val" id="ov-top-lang" style="color:rgba(255,255,255,.7);font-size:13px">—</div>
+        <div class="ovm-lbl">Top Language</div>
+        <div class="ovm-sub" id="ov-top-country">globally</div>
+        <div class="ovm-bar"><div class="ovm-fill" id="ov-lang-bar" style="width:80%;background:rgba(255,255,255,.25)"></div></div>
+      </div>
+    </div>
+    <div id="ov-bottom" id="continent-bar"></div>
+  </div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════════════════════════════
+// WORLD DATA — 195 countries with continent, flag, approx GitHub weight
+// ═══════════════════════════════════════════════════════════════════════════════
+const CONTINENT_COLORS = {
+  AS:'#4a9ff5', EU:'#a06be0', NA:'#f0a040', SA:'#50c878',
+  AF:'#ff6b3d', OC:'#40c4d4', AN:'#8899aa'
+};
+const CONTINENT_NAMES = {
+  AS:'Asia', EU:'Europe', NA:'North America', SA:'South America',
+  AF:'Africa', OC:'Oceania', AN:'Antarctica'
+};
+
+// [country, code2, continent, flag, githubWeight(1-100)]
+const COUNTRIES = [
+  ['United States','US','NA','🇺🇸',100],['China','CN','AS','🇨🇳',88],['India','IN','AS','🇮🇳',85],
+  ['Germany','DE','EU','🇩🇪',80],['United Kingdom','GB','EU','🇬🇧',78],['Brazil','BR','SA','🇧🇷',75],
+  ['France','FR','EU','🇫🇷',73],['Canada','CA','NA','🇨🇦',72],['Russia','RU','EU','🇷🇺',70],
+  ['Japan','JP','AS','🇯🇵',68],['South Korea','KR','AS','🇰🇷',65],['Australia','AU','OC','🇦🇺',64],
+  ['Netherlands','NL','EU','🇳🇱',62],['Poland','PL','EU','🇵🇱',60],['Spain','ES','EU','🇪🇸',59],
+  ['Italy','IT','EU','🇮🇹',58],['Sweden','SE','EU','🇸🇪',57],['Switzerland','CH','EU','🇨🇭',56],
+  ['Ukraine','UA','EU','🇺🇦',55],['Argentina','AR','SA','🇦🇷',53],['Indonesia','ID','AS','🇮🇩',52],
+  ['Turkey','TR','AS','🇹🇷',51],['Portugal','PT','EU','🇵🇹',50],['Pakistan','PK','AS','🇵🇰',49],
+  ['Mexico','MX','NA','🇲🇽',48],['Czech Republic','CZ','EU','🇨🇿',47],['Belgium','BE','EU','🇧🇪',46],
+  ['Denmark','DK','EU','🇩🇰',46],['Singapore','SG','AS','🇸🇬',45],['Finland','FI','EU','🇫🇮',44],
+  ['Norway','NO','EU','🇳🇴',44],['Austria','AT','EU','🇦🇹',43],['Israel','IL','AS','🇮🇱',43],
+  ['Taiwan','TW','AS','🇹🇼',42],['Nigeria','NG','AF','🇳🇬',41],['Romania','RO','EU','🇷🇴',41],
+  ['Greece','GR','EU','🇬🇷',40],['Hungary','HU','EU','🇭🇺',39],['Egypt','EG','AF','🇪🇬',38],
+  ['Vietnam','VN','AS','🇻🇳',38],['Iran','IR','AS','🇮🇷',37],['Colombia','CO','SA','🇨🇴',37],
+  ['South Africa','ZA','AF','🇿🇦',36],['Philippines','PH','AS','🇵🇭',35],['Thailand','TH','AS','🇹🇭',35],
+  ['New Zealand','NZ','OC','🇳🇿',34],['Malaysia','MY','AS','🇲🇾',33],['Chile','CL','SA','🇨🇱',33],
+  ['Bangladesh','BD','AS','🇧🇩',32],['Morocco','MA','AF','🇲🇦',31],['Peru','PE','SA','🇵🇪',30],
+  ['Bulgaria','BG','EU','🇧🇬',29],['Croatia','HR','EU','🇭🇷',28],['Slovakia','SK','EU','🇸🇰',28],
+  ['Serbia','RS','EU','🇷🇸',27],['Kenya','KE','AF','🇰🇪',27],['Belarus','BY','EU','🇧🇾',26],
+  ['Lithuania','LT','EU','🇱🇹',26],['Estonia','EE','EU','🇪🇪',25],['Algeria','DZ','AF','🇩🇿',25],
+  ['Ireland','IE','EU','🇮🇪',25],['Sri Lanka','LK','AS','🇱🇰',24],['Tunisia','TN','AF','🇹🇳',24],
+  ['Jordan','JO','AS','🇯🇴',23],['Lebanon','LB','AS','🇱🇧',23],['Georgia','GE','AS','🇬🇪',22],
+  ['Ghana','GH','AF','🇬🇭',22],['Kazakhstan','KZ','AS','🇰🇿',21],['Ecuador','EC','SA','🇪🇨',21],
+  ['Bolivia','BO','SA','🇧🇴',20],['Venezuela','VE','SA','🇻🇪',20],['Cuba','CU','NA','🇨🇺',19],
+  ['Myanmar','MM','AS','🇲🇲',19],['Dominican Republic','DO','NA','🇩🇴',18],['Uruguay','UY','SA','🇺🇾',18],
+  ['Nepal','NP','AS','🇳🇵',17],['Latvia','LV','EU','🇱🇻',17],['Slovenia','SI','EU','🇸🇮',17],
+  ['Luxembourg','LU','EU','🇱🇺',16],['Costa Rica','CR','NA','🇨🇷',16],['Cameroon','CM','AF','🇨🇲',15],
+  ['Ethiopia','ET','AF','🇪🇹',15],['Saudi Arabia','SA','AS','🇸🇦',15],['UAE','AE','AS','🇦🇪',15],
+  ['Kuwait','KW','AS','🇰🇼',14],['Cyprus','CY','EU','🇨🇾',14],['Panama','PA','NA','🇵🇦',14],
+  ['Ivory Coast','CI','AF','🇨🇮',13],['Senegal','SN','AF','🇸🇳',13],['Tanzania','TZ','AF','🇹🇿',13],
+  ['Guatemala','GT','NA','🇬🇹',12],['Honduras','HN','NA','🇭🇳',12],['El Salvador','SV','NA','🇸🇻',12],
+  ['Nicaragua','NI','NA','🇳🇮',11],['Paraguay','PY','SA','🇵🇾',11],['Uganda','UG','AF','🇺🇬',11],
+  ['Zambia','ZM','AF','🇿🇲',10],['Zimbabwe','ZW','AF','🇿🇼',10],['Libya','LY','AF','🇱🇾',10],
+  ['Armenia','AM','AS','🇦🇲',10],['Azerbaijan','AZ','AS','🇦🇿',10],['Moldova','MD','EU','🇲🇩',9],
+  ['Bosnia','BA','EU','🇧🇦',9],['North Macedonia','MK','EU','🇲🇰',9],['Albania','AL','EU','🇦🇱',9],
+  ['Montenegro','ME','EU','🇲🇪',8],['Iceland','IS','EU','🇮🇸',8],['Malta','MT','EU','🇲🇹',8],
+  ['Bahrain','BH','AS','🇧🇭',8],['Qatar','QA','AS','🇶🇦',8],['Oman','OM','AS','🇴🇲',7],
+  ['Brunei','BN','AS','🇧🇳',7],['Cambodia','KH','AS','🇰🇭',7],['Mongolia','MN','AS','🇲🇳',7],
+  ['Iraq','IQ','AS','🇮🇶',7],['Syria','SY','AS','🇸🇾',6],['Yemen','YE','AS','🇾🇪',6],
+  ['Sudan','SD','AF','🇸🇩',6],['Somalia','SO','AF','🇸🇴',5],['Madagascar','MG','AF','🇲🇬',5],
+  ['Mozambique','MZ','AF','🇲🇿',5],['Rwanda','RW','AF','🇷🇼',5],['Angola','AO','AF','🇦🇴',5],
+  ['Jamaica','JM','NA','🇯🇲',5],['Trinidad','TT','NA','🇹🇹',5],['Barbados','BB','NA','🇧🇧',4],
+  ['Haiti','HT','NA','🇭🇹',4],['Papua New Guinea','PG','OC','🇵🇬',4],['Fiji','FJ','OC','🇫🇯',4],
+  ['Laos','LA','AS','🇱🇦',4],['Kyrgyzstan','KG','AS','🇰🇬',4],['Tajikistan','TJ','AS','🇹🇯',4],
+  ['Turkmenistan','TM','AS','🇹🇲',3],['Afghanistan','AF','AS','🇦🇫',3],['Palestine','PS','AS','🇵🇸',6],
+  ['Liberia','LR','AF','🇱🇷',3],['Sierra Leone','SL','AF','🇸🇱',3],['Guinea','GN','AF','🇬🇳',3],
+  ['Mali','ML','AF','🇲🇱',3],['Niger','NE','AF','🇳🇪',3],['Chad','TD','AF','🇹🇩',3],
+  ['Benin','BJ','AF','🇧🇯',3],['Togo','TG','AF','🇹🇬',3],['Burkina Faso','BF','AF','🇧🇫',3],
+  ['Mauritania','MR','AF','🇲🇷',2],['Djibouti','DJ','AF','🇩🇯',2],['Eritrea','ER','AF','🇪🇷',2],
+  ['Burundi','BI','AF','🇧🇮',2],['Lesotho','LS','AF','🇱🇸',2],['Swaziland','SZ','AF','🇸🇿',2],
+  ['Botswana','BW','AF','🇧🇼',4],['Namibia','NA','AF','🇳🇦',3],['Gabon','GA','AF','🇬🇦',2],
+  ['Equatorial Guinea','GQ','AF','🇬🇶',2],['Maldives','MV','AS','🇲🇻',3],['Bhutan','BT','AS','🇧🇹',2],
+  ['East Timor','TL','AS','🇹🇱',2],['Vanuatu','VU','OC','🇻🇺',2],['Samoa','WS','OC','🇼🇸',2],
+  ['Tonga','TO','OC','🇹🇴',2],['Solomon Islands','SB','OC','🇸🇧',1],['Kiribati','KI','OC','🇰🇮',1],
+  ['Micronesia','FM','OC','🇫🇲',1],['Nauru','NR','OC','🇳🇷',1],['Tuvalu','TV','OC','🇹🇻',1],
+  ['Palau','PW','OC','🇵🇼',1],['Marshall Islands','MH','OC','🇲🇭',1],['Andorra','AD','EU','🇦🇩',3],
+  ['Liechtenstein','LI','EU','🇱🇮',3],['Monaco','MC','EU','🇲🇨',3],['San Marino','SM','EU','🇸🇲',2],
+  ['Vatican','VA','EU','🇻🇦',1],['Kosovo','XK','EU','🇽🇰',4],['Belize','BZ','NA','🇧🇿',2],
+  ['Suriname','SR','SA','🇸🇷',2],['Guyana','GY','SA','🇬🇾',2],['Papua','PG','OC','🇵🇬',2],
+];
+
+const LANG_COLORS = {
+  JavaScript:'#f0c040',TypeScript:'#4a9ff5',Python:'#4ec94e',Java:'#b07219',
+  'C++':'#b06be0','C#':'#178600',C:'#555555',PHP:'#4f5d95',Ruby:'#ff5370',
+  Go:'#26c6da',Rust:'#ff6b3d',Swift:'#ff9f43',Kotlin:'#9c6af7',Dart:'#40c4ff',
+  Shell:'#89e051',HTML:'#e34c26',CSS:'#563d7c',Vue:'#42b883',R:'#198ce7',
+  MATLAB:'#e16737',Scala:'#c22d40',Haskell:'#5d4f85',Lua:'#000080',Unknown:'#6a7a8c'
+};
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// CANVAS
+// ═══════════════════════════════════════════════════════════════════════════════
+const canvas = document.getElementById('c');
+const ctx    = canvas.getContext('2d');
+let W, H;
+function resize(){
+  const dpr = Math.min(window.devicePixelRatio||1,2);
+  W = canvas.width  = window.innerWidth  * dpr;
+  H = canvas.height = window.innerHeight * dpr;
+  ctx.scale(dpr,dpr); W/=dpr; H/=dpr;
+  if(level===0) buildGalaxy(); else if(level===1&&activeCountry) buildSolarSystem(activeCountry); else if(level===2&&activePlanet) buildRepoField(activePlanet);
+}
+window.addEventListener('resize',resize);
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// STATE
+// ═══════════════════════════════════════════════════════════════════════════════
+let level         = 0; // 0=galaxy 1=country 2=repos
+let activeCountry = null;
+let activePlanet  = null;
+let paused        = false;
+let time          = 0;
+let ghToken       = '';
+let ghRateLeft    = 5000;
+let ghRateTotal   = 5000;
+
+// camera
+let camX=0,camY=0,camZ=1,tCamX=0,tCamY=0,tCamZ=1;
+let dragging=false,dragSx,dragSy,camSx,camSy;
+let mx=-9999,my=-9999;
+
+// scene objects per level
+let galaxyNodes  = [];  // level 0: country galaxies
+let planetNodes  = [];  // level 1: city/region planets
+let repoStars    = [];  // level 2: repo stars
+let bgStars      = [];
+let particles    = [];
+let hoveredNode  = null;
+
+// loaded data cache
+const countryData = {}; // code -> {repos, langs, stars, devs, cities}
+const cityData    = {}; // "code_city" -> {repos[]}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// UTILS
+// ═══════════════════════════════════════════════════════════════════════════════
+function rnd(a,b){return a+Math.random()*(b-a)}
+function lerp(a,b,t){return a+(b-a)*t}
+function fmt(n){if(n>=1e6)return(n/1e6).toFixed(1)+'M';if(n>=1e3)return(n/1e3).toFixed(1)+'K';return(n||0).toLocaleString()}
+function nameToColor(s){let h=0;for(let i=0;i<s.length;i++)h=(h*31+s.charCodeAt(i))&0xffffffff;return'hsl('+(Math.abs(h)%360)+',65%,58%)'}
+function hexToRgb(hex){
+  if(!hex||typeof hex!=='string') return{r:100,g:130,b:200};
+  if(hex.startsWith('hsl')){
+    // parse hsl(h,s%,l%)
+    const m=hex.match(/hsl\((\d+),\s*(\d+)%,\s*(\d+)%\)/);
+    if(!m) return{r:100,g:130,b:200};
+    let h=parseInt(m[1])/360, s=parseInt(m[2])/100, l=parseInt(m[3])/100;
+    if(s===0){const v=Math.round(l*255);return{r:v,g:v,b:v};}
+    const q=l<.5?l*(1+s):l+s-l*s, p=2*l-q;
+    const hue2rgb=(p,q,t)=>{if(t<0)t+=1;if(t>1)t-=1;if(t<1/6)return p+(q-p)*6*t;if(t<1/2)return q;if(t<2/3)return p+(q-p)*(2/3-t)*6;return p;};
+    return{r:Math.round(hue2rgb(p,q,h+1/3)*255),g:Math.round(hue2rgb(p,q,h)*255),b:Math.round(hue2rgb(p,q,h-1/3)*255)};
+  }
+  if(hex.startsWith('#')){
+    const h=hex.length===4?hex[1]+hex[1]+hex[2]+hex[2]+hex[3]+hex[3]:hex.slice(1);
+    return{r:parseInt(h.slice(0,2),16)||0,g:parseInt(h.slice(2,4),16)||0,b:parseInt(h.slice(4,6),16)||0};
+  }
+  return{r:100,g:130,b:200};
+}
+
+function worldToScreen(wx,wy){return{x:(wx-W/2)*camZ+W/2+camX,y:(wy-H/2)*camZ+H/2+camY}}
+function screenToWorld(sx,sy){return{x:(sx-W/2-camX)/camZ+W/2,y:(sy-H/2-camY)/camZ+H/2}}
+function lerp3(a,b,t){return{x:lerp(a.x,b.x,t),y:lerp(a.y,b.y,t),z:lerp(a.z,b.z,t)}}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// BG STARS
+// ═══════════════════════════════════════════════════════════════════════════════
+function buildBgStars(){
+  bgStars=Array.from({length:400},()=>({
+    x:rnd(0,W),y:rnd(0,H),r:rnd(.15,1.4),
+    base:rnd(.05,.28),sp:rnd(.3,1.2),ph:rnd(0,Math.PI*2)
+  }));
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// LEVEL 0 — GALAXY VIEW (countries as galaxy clusters)
+// ═══════════════════════════════════════════════════════════════════════════════
+function buildGalaxy(){
+  buildBgStars();
+  const golden=Math.PI*(3-Math.sqrt(5));
+  const maxR=Math.min(W,H)*.44;
+  const minR=Math.min(W,H)*.07;
+  const filtered=COUNTRIES.filter(c=>!filterContinent||c[2]===filterContinent);
+
+  galaxyNodes=filtered.map((c,i)=>{
+    const t=filtered.length<2?0.5:i/(filtered.length-1);
+    const sR=minR+t*(maxR-minR);
+    const ang=i*golden;
+    const x=W/2+Math.cos(ang)*sR;
+    const y=H/2+Math.sin(ang)*sR;
+    const w=c[4];
+    const r=3+w*.22; // 3-25px
+    const col=CONTINENT_COLORS[c[2]]||'#7a8899';
+    return {
+      country:c[0],code:c[1],continent:c[2],flag:c[3],weight:w,
+      x,y,r,col,rgb:hexToRgb(col),
+      pulsePhase:rnd(0,Math.PI*2),pulseSpeed:rnd(1.5,3),
+      birthTime:time+i*.015,norm:t,
+      loaded:false, loading:false,
+    };
+  });
+}
+
+let filterContinent='';
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// LEVEL 1 — SOLAR SYSTEM VIEW (cities as planets)
+// ═══════════════════════════════════════════════════════════════════════════════
+// Major cities per country (top 4-6)
+const CITIES = {
+  US:['New York','San Francisco','Seattle','Austin','Boston','Chicago'],
+  CN:['Beijing','Shanghai','Shenzhen','Hangzhou','Chengdu','Wuhan'],
+  IN:['Bengaluru','Mumbai','Delhi','Hyderabad','Pune','Chennai'],
+  DE:['Berlin','Munich','Hamburg','Frankfurt','Cologne','Stuttgart'],
+  GB:['London','Manchester','Edinburgh','Bristol','Cambridge','Leeds'],
+  BR:['São Paulo','Rio de Janeiro','Belo Horizonte','Curitiba','Recife','Porto Alegre'],
+  FR:['Paris','Lyon','Marseille','Bordeaux','Toulouse','Nantes'],
+  CA:['Toronto','Vancouver','Montreal','Ottawa','Calgary','Edmonton'],
+  RU:['Moscow','Saint Petersburg','Novosibirsk','Yekaterinburg','Kazan','Nizhny Novgorod'],
+  JP:['Tokyo','Osaka','Kyoto','Fukuoka','Sapporo','Nagoya'],
+  KR:['Seoul','Busan','Incheon','Daegu','Daejeon','Gwangju'],
+  AU:['Sydney','Melbourne','Brisbane','Perth','Adelaide','Canberra'],
+  NL:['Amsterdam','Rotterdam','Utrecht','Eindhoven','Delft','Leiden'],
+  PL:['Warsaw','Kraków','Wrocław','Gdańsk','Poznań','Katowice'],
+  ES:['Madrid','Barcelona','Valencia','Seville','Bilbao','Zaragoza'],
+  IT:['Rome','Milan','Florence','Turin','Bologna','Naples'],
+  SE:['Stockholm','Gothenburg','Malmö','Uppsala','Linköping','Lund'],
+  CH:['Zurich','Geneva','Basel','Bern','Lausanne','Lugano'],
+  UA:['Kyiv','Lviv','Kharkiv','Odessa','Dnipro','Zaporizhzhia'],
+  PT:['Lisbon','Porto','Braga','Coimbra','Aveiro','Faro'],
+  AR:['Buenos Aires','Córdoba','Rosario','La Plata','Mendoza','Tucumán'],
+  SG:['Singapore'],
+  IL:['Tel Aviv','Jerusalem','Haifa','Beer Sheva'],
+  TW:['Taipei','Kaohsiung','Taichung','Tainan'],
+  PH:['Manila','Cebu','Davao','Makati'],
+  ID:['Jakarta','Bandung','Surabaya','Yogyakarta'],
+  TR:['Istanbul','Ankara','Izmir','Bursa'],
+  NG:['Lagos','Abuja','Ibadan','Kano'],
+  EG:['Cairo','Alexandria','Giza'],
+  VN:['Ho Chi Minh City','Hanoi','Da Nang'],
+  PK:['Karachi','Lahore','Islamabad'],
+  MY:['Kuala Lumpur','Penang','Johor Bahru'],
+  TH:['Bangkok','Chiang Mai','Phuket'],
+  ZA:['Cape Town','Johannesburg','Pretoria','Durban'],
+  MX:['Mexico City','Guadalajara','Monterrey'],
+  CO:['Bogotá','Medellín','Cali'],
+  CL:['Santiago','Valparaíso','Concepción'],
+  NZ:['Auckland','Wellington','Christchurch'],
+  KE:['Nairobi','Mombasa','Kisumu'],
+};
+
+function getCities(code){
+  return CITIES[code]||[COUNTRIES.find(c=>c[1]===code)?.[0]||'Capital'];
+}
+
+function buildSolarSystem(countryNode){
+  buildBgStars();
+  const cities=getCities(countryNode.code);
+  const sunR=Math.min(W,H)*.07;
+  const maxOrbit=Math.min(W,H)*.42;
+
+  planetNodes=cities.map((city,i)=>{
+    const orbitR=sunR*2.5+i*(maxOrbit-sunR*2.5)/Math.max(cities.length-1,1);
+    const phase=rnd(0,Math.PI*2);
+    const speed=.12+i*.03;
+    const key=countryNode.code+'_'+city;
+    const cityRepos=(cityData[key]||[]);
+    const cStars=cityRepos.reduce((s,r)=>s+(r.stargazers_count||0),0);
+    const pR=8+Math.min(16,(cityRepos.length||0)*1.4);
+    const col=nameToColor(city);
+
+    return {
+      city,code:countryNode.code,countryNode,
+      orbitR,phase,speed,
+      x:W/2+Math.cos(phase)*orbitR,
+      y:H/2+Math.sin(phase)*orbitR,
+      r:pR, color:col, rgb:hexToRgb(col),
+      repos:cityRepos, stars:cStars,
+      loaded:cityData.hasOwnProperty(key),
+      loading:false,
+      pulsePhase:rnd(0,Math.PI*2),pulseSpeed:rnd(1,2.5),
+      birthTime:time+i*.1,
+    };
+  });
+}
+
+// In static mode, city data is already loaded by loadCountryData.
+// This function just refreshes planet nodes with what's in cityData.
+async function loadCityData(countryNode){
+  if(!countryData[countryNode.code]){
+    await loadCountryData(countryNode);
+  }
+  // Update all planet nodes with data that came in from the country file
+  planetNodes.forEach(p=>{
+    const key=p.code+'_'+p.city;
+    const repos=cityData[key]||[];
+    p.repos=repos;
+    p.stars=repos.reduce((s,r)=>s+(r.stars||r.stargazers_count||0),0);
+    p.r=8+Math.min(16,(repos.length||0)*1.4);
+    p.loaded=true;
+    p.loading=false;
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// LEVEL 2 — REPO STAR FIELD
+// ═══════════════════════════════════════════════════════════════════════════════
+function buildRepoField(planetNode){
+  buildBgStars();
+  const repos=planetNode.repos||[];
+  const maxS=Math.max(...repos.map(r=>r.stargazers_count||0),1);
+  const golden=Math.PI*(3-Math.sqrt(5));
+  const maxR=Math.min(W,H)*.42;
+
+  repoStars=repos.map((repo,i)=>{
+    const t=repos.length<2?0.5:i/(repos.length-1);
+    const sR=40+t*(maxR-40);
+    const ang=i*golden;
+    const x=W/2+Math.cos(ang)*sR;
+    const y=H/2+Math.sin(ang)*sR;
+    const norm=(repo.stargazers_count||0)/maxS;
+    const r=4+norm*18;
+    const col=LANG_COLORS[repo.language]||LANG_COLORS.Unknown;
+    return {
+      repo,x,y,r,col,rgb:hexToRgb(col),norm,
+      pulsePhase:rnd(0,Math.PI*2),pulseSpeed:rnd(1.5,3),
+      birthTime:time+i*.04,
+    };
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// GITHUB API
+// ═══════════════════════════════════════════════════════════════════════════════
+const CACHE_TTL=60*60*1000; // 1 hour persistent
+
+// Use window.storage (persistent) with localStorage fallback
+async function cSet(k,d){
+  const payload=JSON.stringify({d,t:Date.now()});
+  try{
+    if(window.storage) await window.storage.set('ghu:'+k, payload);
+    else localStorage.setItem('ghu_'+k, payload);
+  }catch(e){try{localStorage.setItem('ghu_'+k,payload)}catch(e2){}}
+}
+async function cGet(k){
+  try{
+    let raw=null;
+    if(window.storage){
+      const res=await window.storage.get('ghu:'+k);
+      if(res) raw=res.value;
+    }
+    if(!raw) raw=localStorage.getItem('ghu_'+k);
+    if(!raw) return null;
+    const r=JSON.parse(raw);
+    if(r&&Date.now()-r.t<CACHE_TTL) return r.d;
+  }catch(e){}
+  return null;
+}
+
+async function ghFetch(path){
+  const cached=await cGet(path); if(cached)return cached;
+  const headers={'Accept':'application/vnd.github+json'};
+  if(ghToken) headers['Authorization']='Bearer '+ghToken;
+  const res=await fetch('https://api.github.com'+path,{headers});
+  const rem=parseInt(res.headers.get('X-RateLimit-Remaining')||'5000',10);
+  const tot=parseInt(res.headers.get('X-RateLimit-Limit')||'5000',10);
+  ghRateLeft=rem; ghRateTotal=tot;
+  updateRateMeter();
+  if(res.status===403||res.status===429){
+    const wait=parseInt(res.headers.get('Retry-After')||'61',10);
+    await new Promise(r=>setTimeout(r,Math.min(wait*1000,60000)));
+    return ghFetch(path);
+  }
+  if(!res.ok) throw new Error('API '+res.status);
+  const data=await res.json();
+  await cSet(path,data);
+  return data;
+}
+
+function updateRateMeter(){
+  const w=document.getElementById('rate-wrap');
+  const f=document.getElementById('rate-fill');
+  const n=document.getElementById('rate-num');
+  if(!w)return;
+  w.style.display='block';
+  f.style.width=Math.round(ghRateLeft/ghRateTotal*100)+'%';
+  n.textContent=ghRateLeft.toLocaleString()+' / '+ghRateTotal.toLocaleString();
+}
+
+async function loadCountryData(countryNode){
+  if(countryData[countryNode.code]||countryNode.loading) return;
+  countryNode.loading=true;
+  setStatus('loading '+countryNode.flag+' '+countryNode.country+'…');
+
+  const doc = await loadCountryFile(countryNode.code);
+  if(doc){
+    // build cities into cityData
+    (doc.cities||[]).forEach(city=>{
+      const key=countryNode.code+'_'+city.name;
+      cityData[key]=city.repos||[];
+    });
+    countryData[countryNode.code]={
+      repos:       (doc.cities||[]).flatMap(c=>c.repos||[]),
+      langs:       doc.langs||{},
+      topLang:     doc.topLang||'Unknown',
+      totalStars:  doc.totalStars||0,
+      devs:        doc.users||0,
+      repoCount:   doc.totalRepos||0,
+      cities:      (doc.cities||[]).map(c=>c.name),
+    };
+  } else {
+    countryData[countryNode.code]={repos:[],langs:{},topLang:'Unknown',totalStars:0,devs:0,repoCount:0,cities:[]};
+  }
+  countryNode.loaded=true;
+  countryNode.loading=false;
+  updateOverview();
+  setStatus(doc ? '✓ '+countryNode.country+' · '+(doc.totalRepos||0).toLocaleString()+' repos' : 'no data for '+countryNode.country);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// NAVIGATION
+// ═══════════════════════════════════════════════════════════════════════════════
+async function drillIntoCountry(node){
+  activeCountry=node;
+  level=1;
+  tCamX=0;tCamY=0;tCamZ=1;
+  // Build skeleton solar system immediately so user sees it
+  buildSolarSystem(node);
+  updateBreadcrumb();
+  updateLevelDots();
+  document.getElementById('btn-back').style.display='flex';
+  // Then load per-city repos in background
+  loadCityData(node);
+}
+
+async function drillIntoCity(planetNode){
+  activePlanet=planetNode;
+  level=2;
+  tCamX=0;tCamY=0;tCamZ=1;
+  updateBreadcrumb();
+  updateLevelDots();
+
+  // Load country file if city data not yet available
+  const key=planetNode.code+'_'+planetNode.city;
+  if(!cityData.hasOwnProperty(key)){
+    setStatus('loading '+planetNode.city+'…');
+    try{
+      if(!countryData[planetNode.code]||!countryData[planetNode.code].repos?.length){
+        const doc=await loadCountryFile(planetNode.code);
+        if(doc){
+          (doc.cities||[]).forEach(city=>{
+            const k=planetNode.code+'_'+city.name;
+            cityData[k]=city.repos||[];
+          });
+        }
+      }
+      planetNode.repos=cityData[key]||[];
+      planetNode.loaded=true;
+      setStatus('✓ '+planetNode.city+' · '+planetNode.repos.length+' repos');
+    }catch(e){
+      cityData[key]=[];
+      planetNode.repos=[];
+      planetNode.loaded=true;
+      setStatus('no data for '+planetNode.city);
+    }
+  }
+  buildRepoField(planetNode);
+}
+
+function goBack(){
+  if(level===2){ level=1; activePlanet=null; buildSolarSystem(activeCountry); }
+  else if(level===1){ level=0; activeCountry=null; activePlanet=null; buildGalaxy(); }
+  tCamX=0;tCamY=0;tCamZ=1;
+  updateBreadcrumb();
+  updateLevelDots();
+  if(level===0) document.getElementById('btn-back').style.display='none';
+}
+
+function updateBreadcrumb(){
+  const bc=document.getElementById('breadcrumb');
+  const parts=['<span class="bc-item'+(level===0?' active':'')+ '" onclick="goToLevel(0)">Galaxy</span>'];
+  if(level>=1&&activeCountry) parts.push('<span class="bc-sep">›</span><span class="bc-item'+(level===1?' active':'')+ '" onclick="goToLevel(1)">'+activeCountry.flag+' '+activeCountry.country+'</span>');
+  if(level===2&&activePlanet)  parts.push('<span class="bc-sep">›</span><span class="bc-item active">'+activePlanet.city+'</span>');
+  bc.innerHTML=parts.join('');
+}
+function goToLevel(l){
+  if(l===0)goBack(); else if(l===1&&level===2)goBack();
+}
+
+function updateLevelDots(){
+  document.querySelectorAll('.lv-dot').forEach((d,i)=>{
+    d.classList.toggle('active',i===level);
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// OVERVIEW PANEL
+// ═══════════════════════════════════════════════════════════════════════════════
+function updateOverview(){
+  const loaded=Object.values(countryData);
+  const totalCountries=loaded.length||COUNTRIES.length;
+  const totalRepos=loaded.reduce((s,d)=>s+(d.repoCount||0),0);
+  const totalStars=loaded.reduce((s,d)=>s+(d.totalStars||0),0);
+  const totalDevs=loaded.reduce((s,d)=>s+(d.devs||0),0);
+
+  // top lang globally
+  const allLangs={};
+  loaded.forEach(d=>Object.entries(d.langs||{}).forEach(([l,c])=>allLangs[l]=(allLangs[l]||0)+c));
+  const topLang=Object.entries(allLangs).sort((a,b)=>b[1]-a[1])[0]?.[0]||'—';
+  const topLangColor=LANG_COLORS[topLang]||'#fff';
+
+  document.getElementById('ov-countries').textContent=COUNTRIES.filter(c=>!filterContinent||c[2]===filterContinent).length;
+  document.getElementById('ov-repos').textContent=fmt(totalRepos);
+  document.getElementById('ov-repos-sub').textContent=loaded.length+' countries sampled';
+  document.getElementById('ov-stars').textContent=fmt(totalStars);
+  document.getElementById('ov-devs').textContent=fmt(totalDevs);
+  document.getElementById('ov-top-lang').textContent=topLang;
+  document.getElementById('ov-top-lang').style.color=topLangColor;
+  document.getElementById('ov-lang-bar').style.background=topLangColor+'88';
+
+  // continent chips
+  const contBar=document.getElementById('ov-bottom');
+  if(!contBar.dataset.built){
+    contBar.dataset.built='1';
+    contBar.innerHTML=Object.entries(CONTINENT_NAMES).map(([k,v])=>
+      `<span class="cont-chip" data-cont="${k}" onclick="filterByCont('${k}')">
+        <span class="cont-dot" style="background:${CONTINENT_COLORS[k]}"></span>${v}
+      </span>`
+    ).join('')+'<span class="cont-chip" onclick="filterByCont(\'\')">All</span>';
+  }
+  contBar.querySelectorAll('.cont-chip').forEach(c=>{
+    c.classList.toggle('active',c.dataset.cont===filterContinent||(filterContinent===''&&!c.dataset.cont));
+  });
+}
+
+function filterByCont(cont){
+  filterContinent=cont;
+  level=0; activeCountry=null; activePlanet=null;
+  buildGalaxy();
+  updateBreadcrumb();
+  updateLevelDots();
+  document.getElementById('btn-back').style.display='none';
+  updateOverview();
+  tCamX=0;tCamY=0;tCamZ=1;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// DRAW
+// ═══════════════════════════════════════════════════════════════════════════════
+function drawGlow(x,y,r,rgb,a){
+  const g=ctx.createRadialGradient(x,y,0,x,y,r);
+  g.addColorStop(0,`rgba(${rgb.r},${rgb.g},${rgb.b},${a+.05})`);
+  g.addColorStop(.45,`rgba(${rgb.r},${rgb.g},${rgb.b},${a})`);
+  g.addColorStop(1,'rgba(0,0,0,0)');
+  ctx.beginPath();ctx.arc(x,y,r,0,Math.PI*2);ctx.fillStyle=g;ctx.fill();
+}
+function drawCore(x,y,r,rgb,a){
+  const g=ctx.createRadialGradient(x-r*.25,y-r*.25,0,x,y,r);
+  g.addColorStop(0,`rgba(255,255,255,${a})`);
+  g.addColorStop(.3,`rgba(${rgb.r},${rgb.g},${rgb.b},${a})`);
+  g.addColorStop(1,`rgba(${Math.round(rgb.r*.5)},${Math.round(rgb.g*.5)},${Math.round(rgb.b*.5)},${a*.6})`);
+  ctx.beginPath();ctx.arc(x,y,r,0,Math.PI*2);ctx.fillStyle=g;ctx.fill();
+}
+
+function drawFrame(){
+  if(!paused) time+=.016;
+  camX=lerp(camX,tCamX,.07); camY=lerp(camY,tCamY,.07); camZ=lerp(camZ,tCamZ,.07);
+
+  ctx.clearRect(0,0,W,H);
+  ctx.fillStyle='#02030c';
+  ctx.fillRect(0,0,W,H);
+
+  // nebula wash
+  const nb=ctx.createRadialGradient(W/2,H/2,0,W/2,H/2,Math.min(W,H)*.6);
+  nb.addColorStop(0,'rgba(10,15,50,.15)');nb.addColorStop(1,'rgba(0,0,0,0)');
+  ctx.fillStyle=nb;ctx.fillRect(0,0,W,H);
+
+  // bg stars
+  bgStars.forEach(s=>{
+    const a=s.base+.07*Math.sin(time*s.sp*3+s.ph);
+    ctx.beginPath();ctx.arc(s.x,s.y,s.r,0,Math.PI*2);
+    ctx.fillStyle=`rgba(255,255,255,${Math.max(0,a)})`;ctx.fill();
+  });
+
+  // shooting star
+  if(!paused&&Math.random()<.003){
+    particles.push({x:rnd(0,W),y:rnd(0,H*.4),vx:rnd(3,8),vy:rnd(1,3),life:1,len:rnd(60,130)});
+  }
+  particles=particles.filter(p=>{
+    p.x+=p.vx;p.y+=p.vy;p.life-=.025;if(p.life<=0)return false;
+    const sg=ctx.createLinearGradient(p.x,p.y,p.x-p.len,p.y-p.vy*p.len/p.vx);
+    sg.addColorStop(0,`rgba(255,255,255,${p.life*.7})`);sg.addColorStop(1,'rgba(255,255,255,0)');
+    ctx.beginPath();ctx.moveTo(p.x,p.y);ctx.lineTo(p.x-p.len,p.y-p.vy*p.len/p.vx);
+    ctx.strokeStyle=sg;ctx.lineWidth=.7;ctx.stroke();return true;
+  });
+
+  ctx.save();
+  ctx.translate(W/2+camX,H/2+camY);ctx.scale(camZ,camZ);ctx.translate(-W/2,-H/2);
+  const mw=screenToWorld(mx,my);
+  hoveredNode=null;
+
+  // ── LEVEL 0: Galaxy clusters ──
+  if(level===0){
+    galaxyNodes.forEach(node=>{
+      const age=time-node.birthTime; if(age<0)return;
+      const fade=Math.min(1,age/.6);
+      const pulse=Math.sin(time*node.pulseSpeed+node.pulsePhase)*.1;
+      const r=node.r*(1+pulse)*fade;
+      const isHov=Math.hypot(mw.x-node.x,mw.y-node.y)<r+8/camZ;
+      if(isHov)hoveredNode=node;
+
+      // galaxy dust ring
+      if(node.weight>30){
+        ctx.beginPath();ctx.arc(node.x,node.y,r*3.5,0,Math.PI*2);
+        ctx.strokeStyle=`rgba(${node.rgb.r},${node.rgb.g},${node.rgb.b},${.06*fade})`;
+        ctx.lineWidth=2+node.weight*.03;ctx.setLineDash([2,8+Math.random()*4]);ctx.stroke();
+        ctx.setLineDash([]);
+      }
+
+      drawGlow(node.x,node.y,r*(isHov?4.5:3),node.rgb,(isHov?.2:.1)*fade);
+      drawCore(node.x,node.y,r,node.rgb,.9*fade);
+
+      if(isHov){
+        ctx.beginPath();ctx.arc(node.x,node.y,r+6,0,Math.PI*2);
+        ctx.strokeStyle='rgba(255,255,255,.3)';ctx.lineWidth=.8;ctx.stroke();
+      }
+
+      // flag + name for larger nodes
+      if(camZ>.4&&(r*camZ>6||isHov)){
+        const fs=Math.max(9,Math.min(12,r*.55));
+        ctx.font=(isHov?'600 ':'500 ')+fs+'px monospace';
+        ctx.textAlign='center';
+        ctx.fillStyle=`rgba(255,255,255,${(isHov?.9:.4)*fade})`;
+        ctx.fillText(node.flag+' '+node.country, node.x, node.y+r+14);
+      }
+    });
+  }
+
+  // ── LEVEL 1: Solar system ──
+  else if(level===1){
+    const CX=W/2, CY=H/2;
+
+    // draw orbit rings
+    planetNodes.forEach(p=>{
+      ctx.beginPath();ctx.arc(CX,CY,p.orbitR,0,Math.PI*2);
+      ctx.strokeStyle='rgba(255,255,255,.04)';ctx.lineWidth=.5;
+      ctx.setLineDash([3,9]);ctx.stroke();ctx.setLineDash([]);
+    });
+
+    // sun (country)
+    const sunR=Math.min(W,H)*.07;
+    const sunCol=CONTINENT_COLORS[activeCountry.continent]||'#6699ff';
+    const sunRgb=hexToRgb(sunCol);
+    drawGlow(CX,CY,sunR*3.5,sunRgb,.25);
+    // corona rings
+    [1.4,1.8,2.2].forEach((m,i)=>{
+      ctx.beginPath();ctx.arc(CX,CY,sunR*m,0,Math.PI*2);
+      ctx.strokeStyle=`rgba(${sunRgb.r},${sunRgb.g},${sunRgb.b},${.12-.04*i})`;
+      ctx.lineWidth=.8;ctx.stroke();
+    });
+    drawCore(CX,CY,sunR,sunRgb,.95);
+    ctx.font='bold '+Math.round(sunR*.45)+'px monospace';ctx.textAlign='center';
+    ctx.fillStyle='rgba(255,255,255,.9)';
+    ctx.fillText(activeCountry.flag,CX,CY+sunR*.18);
+    ctx.font='500 '+Math.round(sunR*.25)+'px monospace';
+    ctx.fillStyle='rgba(255,255,255,.6)';
+    ctx.fillText(activeCountry.country,CX,CY+sunR*.68);
+
+    // planets
+    planetNodes.forEach((p,i)=>{
+      const age=time-p.birthTime; if(age<0)return;
+      const fade=Math.min(1,age/.8);
+      const angle=paused?p.phase:time*p.speed+p.phase;
+      p.x=CX+Math.cos(angle)*p.orbitR;
+      p.y=CY+Math.sin(angle)*p.orbitR;
+      const pulse=Math.sin(time*p.pulseSpeed+p.pulsePhase)*.1;
+      const r=p.r*(1+pulse)*fade;
+      const isHov=Math.hypot(mw.x-p.x,mw.y-p.y)<r+10/camZ;
+      if(isHov)hoveredNode=p;
+
+      drawGlow(p.x,p.y,r*(isHov?4:3),p.rgb,(isHov?.2:.1)*fade);
+      drawCore(p.x,p.y,r,p.rgb,.9*fade);
+
+      if(isHov){
+        ctx.beginPath();ctx.arc(p.x,p.y,r+5,0,Math.PI*2);
+        ctx.strokeStyle='rgba(255,255,255,.3)';ctx.lineWidth=.8;ctx.stroke();
+      }
+
+      const fs=Math.max(9,Math.min(11,r*.6));
+      ctx.font=(isHov?'600 ':'')+ fs+'px monospace';ctx.textAlign='center';
+      ctx.fillStyle=`rgba(255,255,255,${(isHov?.85:.45)*fade})`;
+      ctx.fillText(p.city,p.x,p.y+r+13);
+      ctx.font='500 9px monospace';
+      ctx.fillStyle=`rgba(255,255,255,${.25*fade})`;
+      if(p.loading){
+        const dots='.'.repeat((Math.floor(time*3)%3)+1);
+        ctx.fillText('loading'+dots,p.x,p.y+r+24);
+      } else {
+        ctx.fillText(p.repos.length+' repo'+(p.repos.length!==1?'s':''),p.x,p.y+r+24);
+      }
+    });
+  }
+
+  // ── LEVEL 2: Repo star field ──
+  else if(level===2){
+    // planet label at center
+    ctx.font='bold 14px monospace';ctx.textAlign='center';
+    ctx.fillStyle='rgba(255,255,255,.6)';
+    ctx.fillText(activePlanet.city+' · '+activePlanet.repos.length+' repos',W/2,H/2-26);
+    if(activePlanet.repos.length===0){
+      ctx.font='10px monospace';
+      ctx.fillStyle='rgba(255,180,60,.5)';
+      ctx.fillText('no repos found for this city — try clicking another planet',W/2,H/2-8);
+    }
+
+    repoStars.forEach(node=>{
+      const age=time-node.birthTime; if(age<0)return;
+      const fade=Math.min(1,age/.5);
+      const pulse=Math.sin(time*node.pulseSpeed+node.pulsePhase)*.1;
+      const r=node.r*(1+pulse)*fade;
+      const isHov=Math.hypot(mw.x-node.x,mw.y-node.y)<r+8/camZ;
+      if(isHov)hoveredNode=node;
+
+      drawGlow(node.x,node.y,r*(isHov?4.5:3.2),node.rgb,(isHov?.22:.12)*fade);
+      drawCore(node.x,node.y,r,node.rgb,.9*fade);
+
+      if(isHov){
+        ctx.beginPath();ctx.arc(node.x,node.y,r+5,0,Math.PI*2);
+        ctx.strokeStyle='rgba(255,255,255,.3)';ctx.lineWidth=.8;ctx.stroke();
+      }
+
+      const fs=Math.max(8,Math.min(11,r*.55));
+      ctx.font=fs+'px monospace';ctx.textAlign='center';
+      ctx.fillStyle=`rgba(255,255,255,${(isHov?.85:.4)*fade})`;
+      ctx.fillText(node.repo.name,node.x,node.y+r+13);
+      ctx.font='8px monospace';
+      ctx.fillStyle=`rgba(255,255,255,${.22*fade})`;
+      ctx.fillText('⭐ '+(node.repo.stargazers_count||0).toLocaleString(),node.x,node.y+r+23);
+    });
+  }
+
+  ctx.restore();
+
+  // ── Tooltip ──
+  updateTooltip();
+  if(!paused) requestAnimationFrame(drawFrame);
+  else setTimeout(drawFrame,50);
+}
+
+function updateTooltip(){
+  const tt=document.getElementById('tooltip');
+  if(!hoveredNode){tt.style.display='none';return;}
+  tt.style.display='block';
+
+  let name='',rows=[],langs=[],hint='';
+
+  if(level===0){
+    const n=hoveredNode;
+    const d=countryData[n.code]||{};
+    name=n.flag+' '+n.country;
+    rows=[
+      ['Continent',CONTINENT_NAMES[n.continent]||n.continent],
+      ['Public repos',d.repoCount?fmt(d.repoCount):'loading…'],
+      ['Total stars',d.totalStars?fmt(d.totalStars):'—'],
+      ['Contributors',d.devs?fmt(d.devs):'—'],
+      ['Top language',d.topLang||'—'],
+    ];
+    langs=Object.entries(d.langs||{}).sort((a,b)=>b[1]-a[1]).slice(0,5);
+    hint='click to explore';
+    if(!n.loaded&&!n.loading) loadCountryData(n);
+  } else if(level===1){
+    const p=hoveredNode;
+    name='🏙 '+p.city;
+    rows=[
+      ['Country',activeCountry.flag+' '+activeCountry.country],
+      ['Repos (sample)',p.repos.length],
+      ['Stars',fmt(p.stars)],
+    ];
+    hint='click to see repos';
+  } else if(level===2){
+    const r=hoveredNode.repo;
+    name=(LANG_COLORS[r.language]?'':'')+'  '+r.full_name;
+    rows=[
+      ['Language',r.language||'Unknown'],
+      ['Stars',fmt(r.stargazers_count||0)],
+      ['Forks',fmt(r.forks_count||0)],
+      ['Description',r.description||'—'],
+    ];
+  }
+
+  document.getElementById('tt-name').textContent=name;
+  document.getElementById('tt-rows').innerHTML=rows.map(([k,v])=>
+    `<div class="tt-row"><span class="tt-k">${k}</span><span class="tt-v">${String(v).substring(0,40)}</span></div>`
+  ).join('');
+  document.getElementById('tt-langs').innerHTML=langs.map(([l,c])=>
+    `<div class="tt-lang-dot"><div class="tt-ld" style="background:${LANG_COLORS[l]||'#aaa'}"></div>${l} ${c}</div>`
+  ).join('');
+  document.getElementById('tt-hint').textContent=hint;
+
+  // position
+  let tx=mx+18,ty=my-10;
+  const tw=230,tH=220;
+  if(tx+tw>W-16)tx=mx-tw-14;
+  if(ty+tH>H-24)ty=H-tH-24;
+  if(ty<10)ty=10;
+  tt.style.left=tx+'px';tt.style.top=ty+'px';
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// INTERACTION
+// ═══════════════════════════════════════════════════════════════════════════════
+canvas.addEventListener('mousemove',e=>{
+  mx=e.clientX;my=e.clientY;
+  if(dragging){tCamX=camSx+(e.clientX-dragSx);tCamY=camSy+(e.clientY-dragSy);}
+  canvas.style.cursor=hoveredNode?'pointer':dragging?'grabbing':'grab';
+});
+canvas.addEventListener('mousedown',e=>{
+  if(e.target!==canvas)return;
+  dragging=true;dragSx=e.clientX;dragSy=e.clientY;camSx=tCamX;camSy=tCamY;
+});
+canvas.addEventListener('mouseup',e=>{
+  if(!dragging)return;dragging=false;
+  const moved=Math.hypot(e.clientX-dragSx,e.clientY-dragSy);
+  if(moved<6&&hoveredNode){
+    if(level===0)drillIntoCountry(hoveredNode);
+    else if(level===1)drillIntoCity(hoveredNode);
+  }
+});
+canvas.addEventListener('mouseleave',()=>{mx=-9999;my=-9999;dragging=false;});
+canvas.addEventListener('wheel',e=>{
+  e.preventDefault();
+  const d=e.deltaY>0?.88:1.14;
+  tCamZ=Math.max(.2,Math.min(5,tCamZ*d));
+},{passive:false});
+
+// touch
+let lt=0;
+canvas.addEventListener('touchstart',e=>{
+  if(e.touches.length===1){
+    const t=e.touches[0];dragging=true;dragSx=t.clientX;dragSy=t.clientY;camSx=tCamX;camSy=tCamY;
+  }else if(e.touches.length===2){
+    lt=Math.hypot(e.touches[0].clientX-e.touches[1].clientX,e.touches[0].clientY-e.touches[1].clientY);
+  }
+},{passive:true});
+canvas.addEventListener('touchmove',e=>{
+  if(e.touches.length===1&&dragging){
+    const t=e.touches[0];tCamX=camSx+(t.clientX-dragSx);tCamY=camSy+(t.clientY-dragSy);
+  }else if(e.touches.length===2){
+    const d=Math.hypot(e.touches[0].clientX-e.touches[1].clientX,e.touches[0].clientY-e.touches[1].clientY);
+    tCamZ=Math.max(.2,Math.min(5,tCamZ*(d/lt)));lt=d;
+  }
+},{passive:true});
+canvas.addEventListener('touchend',e=>{
+  dragging=false;
+  if(e.changedTouches.length===1&&hoveredNode){
+    if(level===0)drillIntoCountry(hoveredNode);
+    else if(level===1)drillIntoCity(hoveredNode);
+  }
+});
+
+// controls
+document.getElementById('btn-back').onclick=goBack;
+document.getElementById('btn-zoom-in').onclick=()=>tCamZ=Math.min(5,tCamZ*1.3);
+document.getElementById('btn-zoom-out').onclick=()=>tCamZ=Math.max(.2,tCamZ/1.3);
+document.getElementById('btn-reset').onclick=()=>{tCamX=0;tCamY=0;tCamZ=1;};
+document.getElementById('btn-pause').onclick=function(){paused=!paused;this.textContent=paused?'▶':'⏸';if(!paused)requestAnimationFrame(drawFrame);};
+document.getElementById('btn-token').onclick=()=>{
+  const p=document.getElementById('token-panel');
+  p.style.display=p.style.display==='none'?'block':'none';
+};
+
+// token panel
+document.getElementById('tp-btn').onclick=async()=>{
+  filterContinent=document.getElementById('tp-continent').value;
+  level=0;activeCountry=null;activePlanet=null;
+  buildGalaxy();updateBreadcrumb();updateLevelDots();
+  tCamX=0;tCamY=0;tCamZ=1;
+  document.getElementById('btn-back').style.display='none';
+  await restorePersistedData();
+  updateOverview();
+  document.getElementById('token-panel').style.display='none';
+};
+
+function setStatus(msg){document.getElementById('tp-status').textContent=msg;}
+
+// static mode — no token needed
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// BOOT — restore persisted country data
+// ═══════════════════════════════════════════════════════════════════════════════
+async function restorePersistedData(){
+  setStatus('loading universe index…');
+  const index = await loadIndex();
+  if(!index){ setStatus('no data — run scraper.py + build.py first'); return; }
+
+  // Populate galaxy nodes with real stats from index
+  (index.countries||[]).forEach(c=>{
+    const node=galaxyNodes.find(n=>n.code===c.code);
+    if(!node) return;
+    // scale node size by real repo count
+    const maxRepos=Math.max(...(index.countries||[]).map(x=>x.repos||1));
+    node.weight=Math.max(2, Math.round((c.repos/maxRepos)*100));
+    node.r=3+node.weight*.22;
+    // store summary so tooltip shows immediately without loading country file
+    countryData[c.code]={
+      repos:[], langs:{}, topLang:c.topLang||'Unknown',
+      totalStars:c.stars||0, devs:0, repoCount:c.repos||0,
+      cities:c.cities||[],
+    };
+    node.loaded=false; // mark as summary-only; full load happens on click
+  });
+
+  updateOverview();
+  setStatus('✓ '+index.totalCountries+' countries · '+(index.totalRepos||0).toLocaleString()+' repos · built '+new Date(index.builtAt).toLocaleDateString());
+}
+
+resize();
+updateOverview();
+requestAnimationFrame(drawFrame);
+restorePersistedData();
+</script>
+</body>
+</html>
