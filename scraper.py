@@ -10,6 +10,7 @@ Usage:
     python scraper.py --token ghp_xxx --countries US,DE,PH
     python scraper.py --token ghp_xxx --resume          # continue interrupted run
     python scraper.py --token ghp_xxx --workers 3       # parallel countries
+    python scraper.py --token ghp_xxx --only-with-repos # keep users with repos only
 
 Output:
     data/raw/{COUNTRY_CODE}.jsonl   — one JSON object per line (user + repos)
@@ -53,8 +54,9 @@ USERS_PER_PAGE        = 100
 REPOS_PER_USER        = 10    # top repos per user (sorted by stars)
 REPO_PAGES            = 1     # pages of repos per user
 
-# Rate limit safety — stop fetching if remaining drops below this
-RATE_LIMIT_BUFFER = 50
+# Rate limit safety thresholds
+CORE_RATE_BUFFER   = 20   # pause core API below this (out of 5000/hr)
+SEARCH_RATE_BUFFER = 3    # pause search API below this (out of 30/min)
 
 # All 195 countries with their search-friendly names and ISO codes
 COUNTRIES = [
@@ -145,20 +147,31 @@ class GitHubClient:
 
     def _update_rate(self, resp: requests.Response):
         with self._lock:
-            self.rate_remaining  = int(resp.headers.get("X-RateLimit-Remaining", self.rate_remaining))
-            self.rate_reset_at   = int(resp.headers.get("X-RateLimit-Reset", self.rate_reset_at))
             self.total_requests += 1
-            if "search" in resp.url:
-                self.search_remaining = int(resp.headers.get("X-RateLimit-Remaining", self.search_remaining))
-                self.search_reset_at  = int(resp.headers.get("X-RateLimit-Reset", self.search_reset_at))
+            remaining = int(resp.headers.get("X-RateLimit-Remaining", -1))
+            reset_at  = int(resp.headers.get("X-RateLimit-Reset", 0))
+            if remaining == -1:
+                return
+            if "/search/" in resp.url:
+                # Search API: 30 req/min separate bucket
+                self.search_remaining = remaining
+                self.search_reset_at  = reset_at
+            else:
+                # Core API: 5000 req/hr bucket
+                self.rate_remaining = remaining
+                self.rate_reset_at  = reset_at
 
     def _wait_for_rate(self, is_search=False):
-        remaining = self.search_remaining if is_search else self.rate_remaining
-        reset_at  = self.search_reset_at  if is_search else self.rate_reset_at
-        if remaining <= RATE_LIMIT_BUFFER:
-            wait = max(0, reset_at - time.time()) + 2
-            log.warning(f"Rate limit low ({remaining} left) — sleeping {wait:.0f}s")
-            time.sleep(wait)
+        if is_search:
+            if self.search_remaining <= SEARCH_RATE_BUFFER:
+                wait = max(0, self.search_reset_at - time.time()) + 2
+                log.warning(f"Search rate limit low ({self.search_remaining} left) — sleeping {wait:.0f}s")
+                time.sleep(wait)
+        else:
+            if self.rate_remaining <= CORE_RATE_BUFFER:
+                wait = max(0, self.rate_reset_at - time.time()) + 2
+                log.warning(f"Core rate limit low ({self.rate_remaining} left) — sleeping {wait:.0f}s")
+                time.sleep(wait)
 
     def get(self, path: str, params: dict = None, retries: int = 5) -> dict | list | None:
         url = self.BASE + path
@@ -236,6 +249,40 @@ NOISE = {
     "everywhere", "anywhere", "nomad", "online", "home", "the", "and",
 }
 
+def _clean_location_token(token: str) -> str:
+    import re
+    cleaned = token.strip()
+    cleaned = re.sub(r"^[@#\d\s]+", "", cleaned).strip()
+    cleaned = re.sub(r"[^\w\s\-\.]", "", cleaned).strip()
+    cleaned = re.sub(r"\s+", " ", cleaned)
+    return cleaned
+
+def _is_country_like(token: str, country_names: set[str], country_codes: set[str]) -> bool:
+    value = token.lower().strip()
+    return value in country_names or value in country_codes
+
+def _contains_country_reference(value: str, country_names: set[str], country_codes: set[str]) -> bool:
+    padded = f" {value.lower()} "
+    for c in country_names:
+        if f" {c} " in padded:
+            return True
+    for c in country_codes:
+        if f" {c} " in padded:
+            return True
+    return False
+
+def sanitize_location(location: str | None) -> str | None:
+    if not location:
+        return None
+    import re
+    import unicodedata
+    cleaned = "".join(
+        ch for ch in location
+        if unicodedata.category(ch) not in {"So", "Cs"}
+    )
+    cleaned = re.sub(r"\s+", " ", cleaned).strip(" ,;/|-")
+    return cleaned or None
+
 def extract_city(location: str | None) -> str | None:
     """
     Try to extract a city name from a free-text location string.
@@ -249,37 +296,69 @@ def extract_city(location: str | None) -> str | None:
     if not loc or len(loc) < 2:
         return None
 
-    # Split on comma — first part is usually city
-    parts = [p.strip() for p in loc.split(",")]
-    candidate = parts[0]
-
-    # Strip leading @, #, emoji, numbers
     import re
-    candidate = re.sub(r"^[@#\d\s]+", "", candidate).strip()
-    candidate = re.sub(r"[^\w\s\-\.]", "", candidate).strip()
+    country_names = {n.lower() for _, n in COUNTRIES}
+    country_codes = {c.lower() for c, _ in COUNTRIES}
 
-    words = candidate.lower().split()
-    if not words:
+    # Try structured separators first (comma/slash/pipe/semicolon/dash).
+    parts = [p.strip() for p in re.split(r",|/|\||;|\s+-\s+", loc) if p.strip()]
+    for part in parts:
+        candidate = _clean_location_token(part)
+        if not candidate:
+            continue
+        lower_candidate = candidate.lower()
+        if any(sep in lower_candidate for sep in (" and ", " or ", " und ", " & ")) and _contains_country_reference(lower_candidate, country_names, country_codes):
+            continue
+        candidate_parts = candidate.split()
+        if len(candidate_parts) >= 2:
+            tail = candidate_parts[-1].lower()
+            if tail in country_codes or tail in country_names:
+                candidate = " ".join(candidate_parts[:-1]).strip()
+                if not candidate:
+                    continue
+        words = candidate.lower().split()
+        if not words:
+            continue
+        if words[-1] in {"and", "or", "und", "&"}:
+            continue
+        if all(w in NOISE for w in words):
+            continue
+        if _is_country_like(candidate, country_names, country_codes):
+            continue
+        return candidate.title()
+
+    # Fallback: handle compact forms like "Berlin Germany" or "Nuremberg DE".
+    normalized = _clean_location_token(loc)
+    if not normalized:
         return None
+    lower = normalized.lower()
 
-    # Skip if all noise words
-    if all(w in NOISE for w in words):
-        return None
+    # Remove trailing country name/code and retry.
+    for country_name in sorted(country_names, key=len, reverse=True):
+        suffix = f" {country_name}"
+        if lower.endswith(suffix):
+            prefix = normalized[: -len(suffix)].strip(" ,-/")
+            prefix = _clean_location_token(prefix)
+            if prefix and not _is_country_like(prefix, country_names, country_codes):
+                words = prefix.lower().split()
+                if words and not all(w in NOISE for w in words):
+                    return prefix.title()
 
-    # Skip if looks like a country (single word, starts with capital, > 4 chars)
-    # This is heuristic — we'd over-skip but that's fine
-    if len(words) == 1 and len(candidate) > 3:
-        # Check against country names
-        country_names = {n.lower() for _, n in COUNTRIES}
-        if candidate.lower() in country_names:
-            return None
+    for country_code in country_codes:
+        suffix = f" {country_code}"
+        if lower.endswith(suffix):
+            prefix = normalized[: -len(suffix)].strip(" ,-/")
+            prefix = _clean_location_token(prefix)
+            if prefix and not _is_country_like(prefix, country_names, country_codes):
+                words = prefix.lower().split()
+                if words and not all(w in NOISE for w in words):
+                    return prefix.title()
 
-    # Title-case the result
-    return " ".join(w.capitalize() for w in candidate.split())
+    return None
 
 
 # ── Per-country scraper ───────────────────────────────────────────────────────
-def scrape_country(client: GitHubClient, code: str, name: str) -> dict:
+def scrape_country(client: GitHubClient, code: str, name: str, only_with_repos: bool = False) -> dict:
     """
     Fetch up to MAX_USERS_PER_COUNTRY users from this country,
     get their repos, extract city from location.
@@ -291,6 +370,7 @@ def scrape_country(client: GitHubClient, code: str, name: str) -> dict:
     lang_counts: dict[str, int] = {}
     total_stars = 0
     total_repos_collected = 0
+    users_skipped_no_repos = 0
 
     log.info(f"[{code}] Starting — {name}")
 
@@ -313,9 +393,11 @@ def scrape_country(client: GitHubClient, code: str, name: str) -> dict:
             for user in items:
                 login = user["login"]
 
-                # Get full user profile for location
-                profile = client.get(f"/users/{login}") or {}
-                location = profile.get("location") or user.get("location")
+                # Search API items do not include profile location reliably.
+                # Fetch user profile for location/city extraction.
+                user_profile = client.get(f"/users/{login}") or {}
+                location_raw = user_profile.get("location") or user.get("location")
+                location = sanitize_location(location_raw)
                 city = extract_city(location)
 
                 # Get user's top repos
@@ -349,6 +431,11 @@ def scrape_country(client: GitHubClient, code: str, name: str) -> dict:
                 if city:
                     city_counts[city] = city_counts.get(city, 0) + 1
 
+                if only_with_repos and not repos:
+                    users_skipped_no_repos += 1
+                    time.sleep(0.8)
+                    continue
+
                 total_repos_collected += len(repos)
 
                 record = {
@@ -359,19 +446,22 @@ def scrape_country(client: GitHubClient, code: str, name: str) -> dict:
                     "repos":    repos,
                 }
                 fh.write(json.dumps(record, ensure_ascii=False) + "\n")
+                fh.flush()   # write immediately so Ctrl+C doesn't lose data
                 lines_written += 1
+                # ~1 req/s to stay well under 5000/hr core limit
+                time.sleep(0.8)
 
             log.info(
                 f"[{code}] page {page}/{MAX_USERS_PER_COUNTRY//USERS_PER_PAGE} "
                 f"— {lines_written} users, {total_repos_collected} repos "
-                f"— rate: {client.rate_remaining} left"
+                f"— core: {client.rate_remaining} left, search: {client.search_remaining} left"
             )
 
             if len(items) < USERS_PER_PAGE:
                 break  # last page
 
-            # Small polite delay between pages
-            time.sleep(0.3)
+            # Search API allows 30 req/min — delay between pages to avoid hitting it
+            time.sleep(3)
 
     summary = {
         "code":       code,
@@ -379,11 +469,15 @@ def scrape_country(client: GitHubClient, code: str, name: str) -> dict:
         "users":      lines_written,
         "repos":      total_repos_collected,
         "stars":      total_stars,
+        "skipped_no_repos": users_skipped_no_repos,
         "top_cities": sorted(city_counts.items(), key=lambda x: -x[1])[:20],
         "top_langs":  sorted(lang_counts.items(), key=lambda x: -x[1])[:15],
         "scraped_at": str(datetime.now(timezone.utc)),
     }
-    log.info(f"[{code}] Done — {lines_written} users, {total_repos_collected} repos, top city: {summary['top_cities'][:1]}")
+    log.info(
+        f"[{code}] Done — {lines_written} users, {total_repos_collected} repos, "
+        f"skipped-no-repos: {users_skipped_no_repos}, top city: {summary['top_cities'][:1]}"
+    )
     return summary
 
 
@@ -395,6 +489,7 @@ def main():
     parser.add_argument("--resume",   action="store_true", help="Skip already-completed countries")
     parser.add_argument("--workers",  type=int, default=1, help="Parallel workers (keep ≤3 to avoid rate limits)")
     parser.add_argument("--dry-run",  action="store_true", help="Print plan without scraping")
+    parser.add_argument("--only-with-repos", action="store_true", help="Only keep users with at least 1 non-fork repo")
     args = parser.parse_args()
 
     RAW_DIR.mkdir(parents=True, exist_ok=True)
@@ -437,7 +532,7 @@ def main():
     def process(code_name):
         code, name = code_name
         try:
-            summary = scrape_country(client, code, name)
+            summary = scrape_country(client, code, name, only_with_repos=args.only_with_repos)
             with threading.Lock():
                 progress["done"].append(code)
                 save_progress(progress)

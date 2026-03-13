@@ -130,32 +130,44 @@ def build_country(code: str, top_cities: int, top_repos: int, min_stars: int) ->
 
     log.info(f"[{code}] Building from {len(records)} users…")
 
-    # Aggregate by city
-    city_buckets: dict[str, list] = defaultdict(list)
-    no_city_repos = []
+    # Aggregate by city while preserving users inside each city
+    city_buckets: dict[str, list[dict]] = defaultdict(list)
     global_lang_counts: dict[str, int] = defaultdict(int)
     global_stars = 0
     global_repos = 0
 
     for record in records:
         city = record.get("city")
-        repos = record.get("repos", [])
-        for repo in repos:
+        repos = []
+        for repo in record.get("repos", []):
             if repo.get("stars", 0) < min_stars:
                 continue
+            repos.append(repo)
             global_lang_counts[repo.get("language","Unknown")] += 1
             global_stars += repo.get("stars", 0)
             global_repos += 1
-            if city:
-                city_buckets[city].append(repo)
-            else:
-                no_city_repos.append(repo)
+        if city:
+            user_lang_counts: dict[str, int] = defaultdict(int)
+            for repo in repos:
+                user_lang_counts[repo.get("language", "Unknown")] += 1
+            city_buckets[city].append({
+                "login": record.get("login", "unknown"),
+                "location": record.get("location"),
+                "repoCount": len(repos),
+                "stars": sum(repo.get("stars", 0) for repo in repos),
+                "topLang": max(user_lang_counts, key=user_lang_counts.get, default="Unknown"),
+                "repos": repos,
+            })
 
-    # Sort cities by number of repos, take top N
-    sorted_cities = sorted(city_buckets.items(), key=lambda x: -len(x[1]))[:top_cities]
+    # Sort cities by total repos, take top N
+    sorted_cities = sorted(
+        city_buckets.items(),
+        key=lambda item: -sum(user["repoCount"] for user in item[1])
+    )[:top_cities]
 
     cities_out = []
-    for city_name, city_repos in sorted_cities:
+    for city_name, city_users in sorted_cities:
+        city_repos = [repo for user in city_users for repo in user.get("repos", [])]
         # Deduplicate repos by id
         seen = {}
         for r in city_repos:
@@ -168,8 +180,15 @@ def build_country(code: str, top_cities: int, top_repos: int, min_stars: int) ->
         for r in deduped:
             city_lang_counts[r.get("language","Unknown")] += 1
 
+        users_out = sorted(
+            city_users,
+            key=lambda user: (-user["repoCount"], -user["stars"], user["login"].lower()),
+        )
+
         cities_out.append({
             "name":      city_name,
+            "userCount": len(users_out),
+            "users":     users_out,
             "repos":     deduped,
             "repoCount": len(deduped),
             "stars":     sum(r["stars"] for r in deduped),

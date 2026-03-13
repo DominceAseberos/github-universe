@@ -36,6 +36,24 @@ canvas{position:fixed;inset:0;display:block;width:100%;height:100%}
   display:flex;flex-direction:column;gap:8px;
   pointer-events:all;
 }
+#search-wrap{
+  position:absolute;top:22px;right:64px;
+  width:250px;pointer-events:all;
+}
+#search-input{
+  width:100%;height:34px;
+  border-radius:18px;
+  background:rgba(2,3,12,.75);
+  border:1px solid rgba(255,255,255,.1);
+  color:rgba(255,255,255,.85);
+  font-family:inherit;font-size:10px;
+  letter-spacing:.6px;
+  padding:0 12px;
+  outline:none;backdrop-filter:blur(8px);
+  transition:all .2s;
+}
+#search-input::placeholder{color:rgba(255,255,255,.35)}
+#search-input:focus{border-color:rgba(100,160,255,.45);background:rgba(10,14,30,.85)}
 .ctrl-btn{
   width:34px;height:34px;border-radius:50%;
   background:rgba(2,3,12,.75);border:1px solid rgba(255,255,255,.1);
@@ -142,6 +160,7 @@ canvas{position:fixed;inset:0;display:block;width:100%;height:100%}
   .ovm{padding:9px 8px 11px}
   #ov-bottom{display:none}
   #token-panel{width:calc(100vw - 40px);right:16px;top:auto;bottom:160px}
+  #search-wrap{left:16px;right:64px;top:22px;width:auto}
 }
 </style>
 </head>
@@ -157,7 +176,12 @@ canvas{position:fixed;inset:0;display:block;width:100%;height:100%}
   <div id="level-badge">
     <div class="lv-dot active" title="Galaxy view"></div>
     <div class="lv-dot" title="Country view"></div>
+    <div class="lv-dot" title="Population view"></div>
     <div class="lv-dot" title="Repository view"></div>
+  </div>
+
+  <div id="search-wrap">
+    <input id="search-input" type="text" placeholder="Search name, country, city" aria-label="Search">
   </div>
 
   <div id="ctrl-bar">
@@ -235,7 +259,7 @@ canvas{position:fixed;inset:0;display:block;width:100%;height:100%}
         <div class="ovm-bar"><div class="ovm-fill" id="ov-lang-bar" style="width:80%;background:rgba(255,255,255,.25)"></div></div>
       </div>
     </div>
-    <div id="ov-bottom" id="continent-bar"></div>
+    <div id="ov-bottom"></div>
   </div>
 </div>
 
@@ -334,16 +358,20 @@ function resize(){
   W = canvas.width  = window.innerWidth  * dpr;
   H = canvas.height = window.innerHeight * dpr;
   ctx.scale(dpr,dpr); W/=dpr; H/=dpr;
-  if(level===0) buildGalaxy(); else if(level===1&&activeCountry) buildSolarSystem(activeCountry); else if(level===2&&activePlanet) buildRepoField(activePlanet);
+  if(level===0) buildGalaxy();
+  else if(level===1&&activeCountry) buildSolarSystem(activeCountry);
+  else if(level===2&&activePlanet) buildPopulationField(activePlanet);
+  else if(level===3&&activeUser) buildRepoField(activeUser);
 }
 window.addEventListener('resize',resize);
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // STATE
 // ═══════════════════════════════════════════════════════════════════════════════
-let level         = 0; // 0=galaxy 1=country 2=repos
+let level         = 0; // 0=galaxy 1=country 2=users 3=repos
 let activeCountry = null;
 let activePlanet  = null;
+let activeUser    = null;
 let paused        = false;
 let time          = 0;
 let ghToken       = '';
@@ -358,10 +386,12 @@ let mx=-9999,my=-9999;
 // scene objects per level
 let galaxyNodes  = [];  // level 0: country galaxies
 let planetNodes  = [];  // level 1: city/region planets
-let repoStars    = [];  // level 2: repo stars
+let userNodes    = [];  // level 2: users in a city
+let repoStars    = [];  // level 3: repo stars
 let bgStars      = [];
 let particles    = [];
 let hoveredNode  = null;
+let searchQuery  = '';
 
 // loaded data cache
 const countryData = {}; // code -> {repos, langs, stars, devs, cities}
@@ -396,6 +426,25 @@ function hexToRgb(hex){
 function worldToScreen(wx,wy){return{x:(wx-W/2)*camZ+W/2+camX,y:(wy-H/2)*camZ+H/2+camY}}
 function screenToWorld(sx,sy){return{x:(sx-W/2-camX)/camZ+W/2,y:(sy-H/2-camY)/camZ+H/2}}
 function lerp3(a,b,t){return{x:lerp(a.x,b.x,t),y:lerp(a.y,b.y,t),z:lerp(a.z,b.z,t)}}
+function normText(v){return String(v||'').toLowerCase()}
+function hasMatch(values){return values.some(v=>normText(v).includes(searchQuery))}
+function countryMatchesSearch(node){
+  if(!searchQuery) return true;
+  const d=countryData[node.code]||{};
+  return hasMatch([node.country,node.code,(d.cities||[]).join(' ')]);
+}
+function cityMatchesSearch(planet){
+  if(!searchQuery) return true;
+  return hasMatch([planet.city,planet.code,activeCountry?.country]);
+}
+function userMatchesSearch(userNode){
+  if(!searchQuery) return true;
+  return hasMatch([userNode.login,userNode.location,activePlanet?.city,activeCountry?.country]);
+}
+function repoMatchesSearch(repo){
+  if(!searchQuery) return true;
+  return hasMatch([repo.name,repo.full_name,activeUser?.login,activePlanet?.city,activeCountry?.country]);
+}
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // BG STARS
@@ -490,7 +539,7 @@ function getCities(code){
 
 function buildSolarSystem(countryNode){
   buildBgStars();
-  const cities=getCities(countryNode.code);
+  const cities=(countryData[countryNode.code]?.cities?.length ? countryData[countryNode.code].cities : getCities(countryNode.code));
   const sunR=Math.min(W,H)*.07;
   const maxOrbit=Math.min(W,H)*.42;
 
@@ -499,9 +548,11 @@ function buildSolarSystem(countryNode){
     const phase=rnd(0,Math.PI*2);
     const speed=.12+i*.03;
     const key=countryNode.code+'_'+city;
-    const cityRepos=(cityData[key]||[]);
-    const cStars=cityRepos.reduce((s,r)=>s+(r.stargazers_count||0),0);
-    const pR=8+Math.min(16,(cityRepos.length||0)*1.4);
+    const cityDoc=(cityData[key]||null);
+    const cityRepos=(cityDoc?.repos||[]);
+    const cityUsers=(cityDoc?.users||[]);
+    const cStars=cityDoc?.stars ?? cityRepos.reduce((s,r)=>s+(r.stars||r.stargazers_count||0),0);
+    const pR=8+Math.min(16,Math.max(cityUsers.length, cityRepos.length||0)*1.4);
     const col=nameToColor(city);
 
     return {
@@ -510,7 +561,7 @@ function buildSolarSystem(countryNode){
       x:W/2+Math.cos(phase)*orbitR,
       y:H/2+Math.sin(phase)*orbitR,
       r:pR, color:col, rgb:hexToRgb(col),
-      repos:cityRepos, stars:cStars,
+      users:cityUsers, repos:cityRepos, userCount:cityUsers.length, repoCount:cityDoc?.repoCount||cityRepos.length, stars:cStars,
       loaded:cityData.hasOwnProperty(key),
       loading:false,
       pulsePhase:rnd(0,Math.PI*2),pulseSpeed:rnd(1,2.5),
@@ -519,31 +570,68 @@ function buildSolarSystem(countryNode){
   });
 }
 
+function syncPlanetFromCityData(planetNode){
+  const key=planetNode.code+'_'+planetNode.city;
+  const cityDoc=cityData[key]||{};
+  const users=cityDoc.users||[];
+  const repos=cityDoc.repos||[];
+  planetNode.users=users;
+  planetNode.repos=repos;
+  planetNode.userCount=cityDoc.userCount??users.length;
+  planetNode.repoCount=cityDoc.repoCount??repos.length;
+  planetNode.stars=cityDoc.stars??repos.reduce((s,r)=>s+(r.stars||r.stargazers_count||0),0);
+  planetNode.r=8+Math.min(16,Math.max(planetNode.userCount, planetNode.repoCount||0)*1.4);
+  planetNode.loaded=true;
+  planetNode.loading=false;
+}
+
 // In static mode, city data is already loaded by loadCountryData.
 // This function just refreshes planet nodes with what's in cityData.
 async function loadCityData(countryNode){
-  if(!countryData[countryNode.code]){
+  if(!countryNode.loaded){
     await loadCountryData(countryNode);
   }
   // Update all planet nodes with data that came in from the country file
   planetNodes.forEach(p=>{
-    const key=p.code+'_'+p.city;
-    const repos=cityData[key]||[];
-    p.repos=repos;
-    p.stars=repos.reduce((s,r)=>s+(r.stars||r.stargazers_count||0),0);
-    p.r=8+Math.min(16,(repos.length||0)*1.4);
-    p.loaded=true;
-    p.loading=false;
+    syncPlanetFromCityData(p);
   });
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// LEVEL 2 — REPO STAR FIELD
+// LEVEL 2 — USER POPULATION FIELD
 // ═══════════════════════════════════════════════════════════════════════════════
-function buildRepoField(planetNode){
+function buildPopulationField(planetNode){
   buildBgStars();
-  const repos=planetNode.repos||[];
-  const maxS=Math.max(...repos.map(r=>r.stargazers_count||0),1);
+  const users=planetNode.users||[];
+  const maxMetric=Math.max(...users.map(u=>Math.max(u.repoCount||0, u.stars||0)),1);
+  const golden=Math.PI*(3-Math.sqrt(5));
+  const maxR=Math.min(W,H)*.42;
+
+  userNodes=users.map((user,i)=>{
+    const t=users.length<2?0.5:i/(users.length-1);
+    const sR=40+t*(maxR-40);
+    const ang=i*golden;
+    const x=W/2+Math.cos(ang)*sR;
+    const y=H/2+Math.sin(ang)*sR;
+    const norm=(Math.max(user.repoCount||0, user.stars||0))/maxMetric;
+    const r=4+norm*18;
+    const col=nameToColor(user.login);
+    return {
+      ...user,
+      x,y,r,col,rgb:hexToRgb(col),norm,
+      pulsePhase:rnd(0,Math.PI*2),pulseSpeed:rnd(1.5,3),
+      birthTime:time+i*.04,
+    };
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// LEVEL 3 — REPO STAR FIELD
+// ═══════════════════════════════════════════════════════════════════════════════
+function buildRepoField(userNode){
+  buildBgStars();
+  const repos=userNode.repos||[];
+  const maxS=Math.max(...repos.map(r=>(r.stars??r.stargazers_count??0)),1);
   const golden=Math.PI*(3-Math.sqrt(5));
   const maxR=Math.min(W,H)*.42;
 
@@ -553,7 +641,7 @@ function buildRepoField(planetNode){
     const ang=i*golden;
     const x=W/2+Math.cos(ang)*sR;
     const y=H/2+Math.sin(ang)*sR;
-    const norm=(repo.stargazers_count||0)/maxS;
+    const norm=((repo.stars??repo.stargazers_count??0))/maxS;
     const r=4+norm*18;
     const col=LANG_COLORS[repo.language]||LANG_COLORS.Unknown;
     return {
@@ -623,7 +711,7 @@ function updateRateMeter(){
 }
 
 async function loadCountryData(countryNode){
-  if(countryData[countryNode.code]||countryNode.loading) return;
+  if((countryData[countryNode.code] && countryNode.loaded) || countryNode.loading) return;
   countryNode.loading=true;
   setStatus('loading '+countryNode.flag+' '+countryNode.country+'…');
 
@@ -632,7 +720,7 @@ async function loadCountryData(countryNode){
     // build cities into cityData
     (doc.cities||[]).forEach(city=>{
       const key=countryNode.code+'_'+city.name;
-      cityData[key]=city.repos||[];
+      cityData[key]=city;
     });
     countryData[countryNode.code]={
       repos:       (doc.cities||[]).flatMap(c=>c.repos||[]),
@@ -641,10 +729,11 @@ async function loadCountryData(countryNode){
       totalStars:  doc.totalStars||0,
       devs:        doc.users||0,
       repoCount:   doc.totalRepos||0,
+      userCount:   doc.users||0,
       cities:      (doc.cities||[]).map(c=>c.name),
     };
   } else {
-    countryData[countryNode.code]={repos:[],langs:{},topLang:'Unknown',totalStars:0,devs:0,repoCount:0,cities:[]};
+    countryData[countryNode.code]={repos:[],langs:{},topLang:'Unknown',totalStars:0,devs:0,repoCount:0,userCount:0,cities:[]};
   }
   countryNode.loaded=true;
   countryNode.loading=false;
@@ -657,6 +746,8 @@ async function loadCountryData(countryNode){
 // ═══════════════════════════════════════════════════════════════════════════════
 async function drillIntoCountry(node){
   activeCountry=node;
+  activePlanet=null;
+  activeUser=null;
   level=1;
   tCamX=0;tCamY=0;tCamZ=1;
   // Build skeleton solar system immediately so user sees it
@@ -670,6 +761,7 @@ async function drillIntoCountry(node){
 
 async function drillIntoCity(planetNode){
   activePlanet=planetNode;
+  activeUser=null;
   level=2;
   tCamX=0;tCamY=0;tCamZ=1;
   updateBreadcrumb();
@@ -685,26 +777,38 @@ async function drillIntoCity(planetNode){
         if(doc){
           (doc.cities||[]).forEach(city=>{
             const k=planetNode.code+'_'+city.name;
-            cityData[k]=city.repos||[];
+            cityData[k]=city;
           });
         }
       }
-      planetNode.repos=cityData[key]||[];
-      planetNode.loaded=true;
-      setStatus('✓ '+planetNode.city+' · '+planetNode.repos.length+' repos');
+      syncPlanetFromCityData(planetNode);
+      setStatus('✓ '+planetNode.city+' · '+(planetNode.userCount||0)+' users');
     }catch(e){
-      cityData[key]=[];
+      cityData[key]={name:planetNode.city,users:[],repos:[],userCount:0,repoCount:0,stars:0,langs:{},topLang:'Unknown'};
       planetNode.repos=[];
+      planetNode.users=[];
       planetNode.loaded=true;
       setStatus('no data for '+planetNode.city);
     }
   }
-  buildRepoField(planetNode);
+  syncPlanetFromCityData(planetNode);
+  buildPopulationField(planetNode);
+}
+
+function drillIntoUser(userNode){
+  activeUser=userNode;
+  level=3;
+  tCamX=0;tCamY=0;tCamZ=1;
+  updateBreadcrumb();
+  updateLevelDots();
+  setStatus('✓ '+userNode.login+' · '+(userNode.repoCount||0)+' repos');
+  buildRepoField(userNode);
 }
 
 function goBack(){
-  if(level===2){ level=1; activePlanet=null; buildSolarSystem(activeCountry); }
-  else if(level===1){ level=0; activeCountry=null; activePlanet=null; buildGalaxy(); }
+  if(level===3){ level=2; activeUser=null; buildPopulationField(activePlanet); }
+  else if(level===2){ level=1; activePlanet=null; activeUser=null; userNodes=[]; buildSolarSystem(activeCountry); }
+  else if(level===1){ level=0; activeCountry=null; activePlanet=null; activeUser=null; userNodes=[]; buildGalaxy(); }
   tCamX=0;tCamY=0;tCamZ=1;
   updateBreadcrumb();
   updateLevelDots();
@@ -715,11 +819,14 @@ function updateBreadcrumb(){
   const bc=document.getElementById('breadcrumb');
   const parts=['<span class="bc-item'+(level===0?' active':'')+ '" onclick="goToLevel(0)">Galaxy</span>'];
   if(level>=1&&activeCountry) parts.push('<span class="bc-sep">›</span><span class="bc-item'+(level===1?' active':'')+ '" onclick="goToLevel(1)">'+activeCountry.flag+' '+activeCountry.country+'</span>');
-  if(level===2&&activePlanet)  parts.push('<span class="bc-sep">›</span><span class="bc-item active">'+activePlanet.city+'</span>');
+  if(level>=2&&activePlanet) parts.push('<span class="bc-sep">›</span><span class="bc-item'+(level===2?' active':'')+ '" onclick="goToLevel(2)">'+activePlanet.city+'</span>');
+  if(level===3&&activeUser) parts.push('<span class="bc-sep">›</span><span class="bc-item active">@'+activeUser.login+'</span>');
   bc.innerHTML=parts.join('');
 }
 function goToLevel(l){
-  if(l===0)goBack(); else if(l===1&&level===2)goBack();
+  if(l===0){ while(level>0) goBack(); }
+  else if(l===1){ while(level>1) goBack(); }
+  else if(l===2 && level===3){ goBack(); }
 }
 
 function updateLevelDots(){
@@ -770,7 +877,7 @@ function updateOverview(){
 
 function filterByCont(cont){
   filterContinent=cont;
-  level=0; activeCountry=null; activePlanet=null;
+  level=0; activeCountry=null; activePlanet=null; activeUser=null; userNodes=[];
   buildGalaxy();
   updateBreadcrumb();
   updateLevelDots();
@@ -838,6 +945,7 @@ function drawFrame(){
   if(level===0){
     galaxyNodes.forEach(node=>{
       const age=time-node.birthTime; if(age<0)return;
+      if(!countryMatchesSearch(node)) return;
       const fade=Math.min(1,age/.6);
       const pulse=Math.sin(time*node.pulseSpeed+node.pulsePhase)*.1;
       const r=node.r*(1+pulse)*fade;
@@ -877,6 +985,7 @@ function drawFrame(){
 
     // draw orbit rings
     planetNodes.forEach(p=>{
+      if(!cityMatchesSearch(p)) return;
       ctx.beginPath();ctx.arc(CX,CY,p.orbitR,0,Math.PI*2);
       ctx.strokeStyle='rgba(255,255,255,.04)';ctx.lineWidth=.5;
       ctx.setLineDash([3,9]);ctx.stroke();ctx.setLineDash([]);
@@ -903,6 +1012,7 @@ function drawFrame(){
 
     // planets
     planetNodes.forEach((p,i)=>{
+      if(!cityMatchesSearch(p)) return;
       const age=time-p.birthTime; if(age<0)return;
       const fade=Math.min(1,age/.8);
       const angle=paused?p.phase:time*p.speed+p.phase;
@@ -931,24 +1041,64 @@ function drawFrame(){
         const dots='.'.repeat((Math.floor(time*3)%3)+1);
         ctx.fillText('loading'+dots,p.x,p.y+r+24);
       } else {
-        ctx.fillText(p.repos.length+' repo'+(p.repos.length!==1?'s':''),p.x,p.y+r+24);
+        ctx.fillText((p.userCount||0)+' user'+((p.userCount||0)!==1?'s':'')+' · '+(p.repoCount||0)+' repos',p.x,p.y+r+24);
       }
     });
   }
 
-  // ── LEVEL 2: Repo star field ──
+  // ── LEVEL 2: User population field ──
   else if(level===2){
-    // planet label at center
+    const visibleUserCount=searchQuery?userNodes.filter(userMatchesSearch).length:activePlanet.users.length;
     ctx.font='bold 14px monospace';ctx.textAlign='center';
     ctx.fillStyle='rgba(255,255,255,.6)';
-    ctx.fillText(activePlanet.city+' · '+activePlanet.repos.length+' repos',W/2,H/2-26);
-    if(activePlanet.repos.length===0){
+    ctx.fillText(activePlanet.city+' · '+visibleUserCount+' users',W/2,H/2-26);
+    if(visibleUserCount===0){
       ctx.font='10px monospace';
       ctx.fillStyle='rgba(255,180,60,.5)';
-      ctx.fillText('no repos found for this city — try clicking another planet',W/2,H/2-8);
+      ctx.fillText(searchQuery?'no users match this search':'no users found for this city',W/2,H/2-8);
+    }
+
+    userNodes.forEach(node=>{
+      if(!userMatchesSearch(node)) return;
+      const age=time-node.birthTime; if(age<0)return;
+      const fade=Math.min(1,age/.5);
+      const pulse=Math.sin(time*node.pulseSpeed+node.pulsePhase)*.1;
+      const r=node.r*(1+pulse)*fade;
+      const isHov=Math.hypot(mw.x-node.x,mw.y-node.y)<r+8/camZ;
+      if(isHov)hoveredNode=node;
+
+      drawGlow(node.x,node.y,r*(isHov?4.5:3.2),node.rgb,(isHov?.22:.12)*fade);
+      drawCore(node.x,node.y,r,node.rgb,.9*fade);
+
+      if(isHov){
+        ctx.beginPath();ctx.arc(node.x,node.y,r+5,0,Math.PI*2);
+        ctx.strokeStyle='rgba(255,255,255,.3)';ctx.lineWidth=.8;ctx.stroke();
+      }
+
+      const fs=Math.max(8,Math.min(11,r*.55));
+      ctx.font=fs+'px monospace';ctx.textAlign='center';
+      ctx.fillStyle=`rgba(255,255,255,${(isHov?.85:.4)*fade})`;
+      ctx.fillText('@'+node.login,node.x,node.y+r+13);
+      ctx.font='8px monospace';
+      ctx.fillStyle=`rgba(255,255,255,${.22*fade})`;
+      ctx.fillText((node.repoCount||0)+' repos · ⭐ '+(node.stars||0).toLocaleString(),node.x,node.y+r+23);
+    });
+  }
+
+  // ── LEVEL 3: Repo star field ──
+  else if(level===3){
+    const visibleRepoCount=searchQuery?repoStars.filter(n=>repoMatchesSearch(n.repo)).length:activeUser.repos.length;
+    ctx.font='bold 14px monospace';ctx.textAlign='center';
+    ctx.fillStyle='rgba(255,255,255,.6)';
+    ctx.fillText('@'+activeUser.login+' · '+visibleRepoCount+' repos',W/2,H/2-26);
+    if(visibleRepoCount===0){
+      ctx.font='10px monospace';
+      ctx.fillStyle='rgba(255,180,60,.5)';
+      ctx.fillText(searchQuery?'no repos match this search':'no repos found for this user',W/2,H/2-8);
     }
 
     repoStars.forEach(node=>{
+      if(!repoMatchesSearch(node.repo)) return;
       const age=time-node.birthTime; if(age<0)return;
       const fade=Math.min(1,age/.5);
       const pulse=Math.sin(time*node.pulseSpeed+node.pulsePhase)*.1;
@@ -970,7 +1120,7 @@ function drawFrame(){
       ctx.fillText(node.repo.name,node.x,node.y+r+13);
       ctx.font='8px monospace';
       ctx.fillStyle=`rgba(255,255,255,${.22*fade})`;
-      ctx.fillText('⭐ '+(node.repo.stargazers_count||0).toLocaleString(),node.x,node.y+r+23);
+      ctx.fillText('⭐ '+(node.repo.stars??node.repo.stargazers_count??0).toLocaleString(),node.x,node.y+r+23);
     });
   }
 
@@ -1008,17 +1158,28 @@ function updateTooltip(){
     name='🏙 '+p.city;
     rows=[
       ['Country',activeCountry.flag+' '+activeCountry.country],
-      ['Repos (sample)',p.repos.length],
+      ['Users',p.userCount||p.users?.length||0],
+      ['Repos (sample)',p.repoCount||p.repos.length],
       ['Stars',fmt(p.stars)],
     ];
-    hint='click to see repos';
+    hint='click to see users';
   } else if(level===2){
+    const u=hoveredNode;
+    name='👤 @'+u.login;
+    rows=[
+      ['City',activePlanet.city],
+      ['Location',u.location||'—'],
+      ['Repos',u.repoCount||0],
+      ['Stars',fmt(u.stars||0)],
+    ];
+    hint='click to see repos';
+  } else if(level===3){
     const r=hoveredNode.repo;
     name=(LANG_COLORS[r.language]?'':'')+'  '+r.full_name;
     rows=[
       ['Language',r.language||'Unknown'],
-      ['Stars',fmt(r.stargazers_count||0)],
-      ['Forks',fmt(r.forks_count||0)],
+      ['Stars',fmt(r.stars??r.stargazers_count??0)],
+      ['Forks',fmt(r.forks??r.forks_count??0)],
       ['Description',r.description||'—'],
     ];
   }
@@ -1059,6 +1220,7 @@ canvas.addEventListener('mouseup',e=>{
   if(moved<6&&hoveredNode){
     if(level===0)drillIntoCountry(hoveredNode);
     else if(level===1)drillIntoCity(hoveredNode);
+    else if(level===2)drillIntoUser(hoveredNode);
   }
 });
 canvas.addEventListener('mouseleave',()=>{mx=-9999;my=-9999;dragging=false;});
@@ -1090,6 +1252,7 @@ canvas.addEventListener('touchend',e=>{
   if(e.changedTouches.length===1&&hoveredNode){
     if(level===0)drillIntoCountry(hoveredNode);
     else if(level===1)drillIntoCity(hoveredNode);
+    else if(level===2)drillIntoUser(hoveredNode);
   }
 });
 
@@ -1104,10 +1267,31 @@ document.getElementById('btn-token').onclick=()=>{
   p.style.display=p.style.display==='none'?'block':'none';
 };
 
+const searchInput=document.getElementById('search-input');
+searchInput.addEventListener('input',()=>{
+  searchQuery=normText(searchInput.value.trim());
+  hoveredNode=null;
+});
+searchInput.addEventListener('keydown',e=>{
+  if(e.key==='Escape'){
+    searchInput.value='';
+    searchQuery='';
+    hoveredNode=null;
+    searchInput.blur();
+  }
+});
+document.addEventListener('keydown',e=>{
+  const tag=document.activeElement?.tagName;
+  if(e.key==='/' && tag!=='INPUT' && tag!=='TEXTAREA'){
+    e.preventDefault();
+    searchInput.focus();
+  }
+});
+
 // token panel
 document.getElementById('tp-btn').onclick=async()=>{
   filterContinent=document.getElementById('tp-continent').value;
-  level=0;activeCountry=null;activePlanet=null;
+  level=0;activeCountry=null;activePlanet=null;activeUser=null;userNodes=[];
   buildGalaxy();updateBreadcrumb();updateLevelDots();
   tCamX=0;tCamY=0;tCamZ=1;
   document.getElementById('btn-back').style.display='none';
@@ -1119,6 +1303,33 @@ document.getElementById('tp-btn').onclick=async()=>{
 function setStatus(msg){document.getElementById('tp-status').textContent=msg;}
 
 // static mode — no token needed
+const staticCache = { index:null, countries:{} };
+
+async function loadIndex(){
+  if(staticCache.index) return staticCache.index;
+  try{
+    const res = await fetch('data/index.json', {cache:'no-store'});
+    if(!res.ok) return null;
+    const doc = await res.json();
+    staticCache.index = doc;
+    return doc;
+  }catch(e){
+    return null;
+  }
+}
+
+async function loadCountryFile(code){
+  if(staticCache.countries[code]) return staticCache.countries[code];
+  try{
+    const res = await fetch(`data/countries/${code}.json`, {cache:'no-store'});
+    if(!res.ok) return null;
+    const doc = await res.json();
+    staticCache.countries[code] = doc;
+    return doc;
+  }catch(e){
+    return null;
+  }
+}
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // BOOT — restore persisted country data
@@ -1139,7 +1350,8 @@ async function restorePersistedData(){
     // store summary so tooltip shows immediately without loading country file
     countryData[c.code]={
       repos:[], langs:{}, topLang:c.topLang||'Unknown',
-      totalStars:c.stars||0, devs:0, repoCount:c.repos||0,
+      totalStars:c.stars||0, devs:c.users||0, repoCount:c.repos||0,
+      userCount:c.users||0,
       cities:c.cities||[],
     };
     node.loaded=false; // mark as summary-only; full load happens on click
