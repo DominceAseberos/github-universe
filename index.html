@@ -772,28 +772,98 @@ function buildPopulationField(planetNode){
   buildBgStars();
   const users=planetNode.users||[];
   const maxMetric=Math.max(...users.map(u=>Math.max(u.repoCount||0, u.stars||0)),1);
-  const golden=Math.PI*(3-Math.sqrt(5));
-  const maxRX=W*.46, maxRY=H*.43;
-  const minRX=W*.09, minRY=H*.09;
+  const count=users.length;
+  const padX=Math.max(18,Math.min(60,W*.035));
+  const padTop=Math.max(78,Math.min(112,H*.13));
+  const padBottom=Math.max(84,Math.min(126,H*.14));
+  const minX=padX, maxX=W-padX;
+  const minY=padTop, maxY=H-padBottom;
+  const baseGap=count>900?3.2:(count>650?4.2:(count>420?5.2:7.8));
 
-  userNodes=users.map((user,i)=>{
-    const t=users.length<2?0.5:i/(users.length-1);
-    const tSpread=Math.pow(t,.7);
-    const sRX=minRX+tSpread*(maxRX-minRX);
-    const sRY=minRY+tSpread*(maxRY-minRY);
-    const ang=i*golden;
-    const x=W/2+Math.cos(ang)*sRX;
-    const y=H/2+Math.sin(ang)*sRY;
+  const items=users.map((user)=>{
     const norm=(Math.max(user.repoCount||0, user.stars||0))/maxMetric;
     const r=5+norm*20;
     const col=nameToColor(user.login);
-    return {
-      ...user,
-      x,y,r,col,rgb:hexToRgb(col),norm,
-      pulsePhase:rnd(0,Math.PI*2),pulseSpeed:rnd(1.5,3),
-      birthTime:time+i*.04,
-    };
+    return {user,norm,r,col,rgb:hexToRgb(col)};
+  }).sort((a,b)=>b.r-a.r);
+
+  const cellSize=Math.max(14,(items[0]?.r||10)+baseGap+7);
+  const grid=new Map();
+  const placed=[];
+
+  function gKey(gx,gy){ return gx+'|'+gy; }
+  function gridCell(x,y){ return {gx:Math.floor(x/cellSize),gy:Math.floor(y/cellSize)}; }
+  function insertToGrid(node,idx){
+    const {gx,gy}=gridCell(node.x,node.y);
+    const key=gKey(gx,gy);
+    if(!grid.has(key)) grid.set(key,[]);
+    grid.get(key).push(idx);
+  }
+  function insideBounds(x,y,r,gap){
+    return x-r-gap>=minX&&x+r+gap<=maxX&&y-r-gap>=minY&&y+r+gap<=maxY;
+  }
+  function canPlace(x,y,r,gap){
+    if(!insideBounds(x,y,r,gap)) return false;
+    const {gx,gy}=gridCell(x,y);
+    for(let yy=gy-1;yy<=gy+1;yy++){
+      for(let xx=gx-1;xx<=gx+1;xx++){
+        const arr=grid.get(gKey(xx,yy));
+        if(!arr) continue;
+        for(const idx of arr){
+          const p=placed[idx];
+          const minD=p.r+r+gap;
+          const dx=x-p.x,dy=y-p.y;
+          if(dx*dx+dy*dy<minD*minD) return false;
+        }
+      }
+    }
+    return true;
+  }
+
+  items.forEach((item,i)=>{
+    const attempts=count>900?65:100;
+    let node=null;
+    for(let a=0;a<attempts;a++){
+      const x=rnd(minX,maxX);
+      const y=rnd(minY,maxY);
+      if(canPlace(x,y,item.r,baseGap)){
+        node={...item,x,y};
+        break;
+      }
+    }
+
+    if(!node){
+      const fallbackGap=baseGap*.52;
+      const cols=Math.max(7,Math.floor((maxX-minX)/cellSize));
+      const rows=Math.max(7,Math.floor((maxY-minY)/cellSize));
+      const total=cols*rows;
+      for(let a=0;a<Math.min(total,250);a++){
+        const idx=(i*17+a*31)%total;
+        const cx=idx%cols;
+        const cy=Math.floor(idx/cols);
+        const x=minX+(cx+.5)*((maxX-minX)/cols)+rnd(-cellSize*.2,cellSize*.2);
+        const y=minY+(cy+.5)*((maxY-minY)/rows)+rnd(-cellSize*.2,cellSize*.2);
+        if(canPlace(x,y,item.r,fallbackGap)){
+          node={...item,x,y};
+          break;
+        }
+      }
+    }
+
+    if(!node){
+      node={...item,x:rnd(minX,maxX),y:rnd(minY,maxY)};
+    }
+
+    placed.push(node);
+    insertToGrid(node,placed.length-1);
   });
+
+  userNodes=placed.map((n,i)=>({
+    ...n.user,
+    x:n.x,y:n.y,r:n.r,col:n.col,rgb:n.rgb,norm:n.norm,
+    pulsePhase:rnd(0,Math.PI*2),pulseSpeed:rnd(1.5,3),
+    birthTime:time+i*.04,
+  }));
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -803,27 +873,97 @@ function buildRepoField(userNode){
   buildBgStars();
   const repos=userNode.repos||[];
   const maxS=Math.max(...repos.map(r=>(r.stars??r.stargazers_count??0)),1);
-  const golden=Math.PI*(3-Math.sqrt(5));
-  const maxRX=W*.46, maxRY=H*.43;
-  const minRX=W*.09, minRY=H*.09;
+  const count=repos.length;
+  const padX=Math.max(20,Math.min(72,W*.04));
+  const padTop=Math.max(84,Math.min(120,H*.14));
+  const padBottom=Math.max(86,Math.min(130,H*.14));
+  const minX=padX, maxX=W-padX;
+  const minY=padTop, maxY=H-padBottom;
+  const baseGap=count>320?6:(count>220?8:11);
 
-  repoStars=repos.map((repo,i)=>{
-    const t=repos.length<2?0.5:i/(repos.length-1);
-    const tSpread=Math.pow(t,.7);
-    const sRX=minRX+tSpread*(maxRX-minRX);
-    const sRY=minRY+tSpread*(maxRY-minRY);
-    const ang=i*golden;
-    const x=W/2+Math.cos(ang)*sRX;
-    const y=H/2+Math.sin(ang)*sRY;
+  const items=repos.map((repo)=>{
     const norm=((repo.stars??repo.stargazers_count??0))/maxS;
     const r=5+norm*20;
     const col=LANG_COLORS[repo.language]||LANG_COLORS.Unknown;
-    return {
-      repo,x,y,r,col,rgb:hexToRgb(col),norm,
-      pulsePhase:rnd(0,Math.PI*2),pulseSpeed:rnd(1.5,3),
-      birthTime:time+i*.04,
-    };
+    return {repo,norm,r,col,rgb:hexToRgb(col)};
+  }).sort((a,b)=>b.r-a.r);
+
+  const cellSize=Math.max(16,(items[0]?.r||10)+baseGap+8);
+  const grid=new Map();
+  const placed=[];
+
+  function gKey(gx,gy){ return gx+'|'+gy; }
+  function gridCell(x,y){ return {gx:Math.floor(x/cellSize),gy:Math.floor(y/cellSize)}; }
+  function insertToGrid(node,idx){
+    const {gx,gy}=gridCell(node.x,node.y);
+    const key=gKey(gx,gy);
+    if(!grid.has(key)) grid.set(key,[]);
+    grid.get(key).push(idx);
+  }
+  function insideBounds(x,y,r,gap){
+    return x-r-gap>=minX&&x+r+gap<=maxX&&y-r-gap>=minY&&y+r+gap<=maxY;
+  }
+  function canPlace(x,y,r,gap){
+    if(!insideBounds(x,y,r,gap)) return false;
+    const {gx,gy}=gridCell(x,y);
+    for(let yy=gy-1;yy<=gy+1;yy++){
+      for(let xx=gx-1;xx<=gx+1;xx++){
+        const arr=grid.get(gKey(xx,yy));
+        if(!arr) continue;
+        for(const idx of arr){
+          const p=placed[idx];
+          const minD=p.r+r+gap;
+          const dx=x-p.x,dy=y-p.y;
+          if(dx*dx+dy*dy<minD*minD) return false;
+        }
+      }
+    }
+    return true;
+  }
+
+  items.forEach((item,i)=>{
+    const attempts=count>320?90:130;
+    let node=null;
+    for(let a=0;a<attempts;a++){
+      const x=rnd(minX,maxX);
+      const y=rnd(minY,maxY);
+      if(canPlace(x,y,item.r,baseGap)){
+        node={...item,x,y};
+        break;
+      }
+    }
+
+    if(!node){
+      const fallbackGap=baseGap*.55;
+      const cols=Math.max(6,Math.floor((maxX-minX)/cellSize));
+      const rows=Math.max(6,Math.floor((maxY-minY)/cellSize));
+      const total=cols*rows;
+      for(let a=0;a<Math.min(total,220);a++){
+        const idx=(i*13+a*37)%total;
+        const cx=idx%cols;
+        const cy=Math.floor(idx/cols);
+        const x=minX+(cx+.5)*((maxX-minX)/cols)+rnd(-cellSize*.22,cellSize*.22);
+        const y=minY+(cy+.5)*((maxY-minY)/rows)+rnd(-cellSize*.22,cellSize*.22);
+        if(canPlace(x,y,item.r,fallbackGap)){
+          node={...item,x,y};
+          break;
+        }
+      }
+    }
+
+    if(!node){
+      node={...item,x:rnd(minX,maxX),y:rnd(minY,maxY)};
+    }
+
+    placed.push(node);
+    insertToGrid(node,placed.length-1);
   });
+
+  repoStars=placed.map((n,i)=>({
+    repo:n.repo,x:n.x,y:n.y,r:n.r,col:n.col,rgb:n.rgb,norm:n.norm,
+    pulsePhase:rnd(0,Math.PI*2),pulseSpeed:rnd(1.5,3),
+    birthTime:time+i*.04,
+  }));
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -1468,13 +1608,19 @@ function drawFrame(ts=performance.now()){
         ctx.strokeStyle='rgba(255,255,255,.3)';ctx.lineWidth=.8;ctx.stroke();
       }
 
-      const fs=Math.max(8,Math.min(11,r*.55));
-      ctx.font=fs+'px monospace';ctx.textAlign='center';
-      ctx.fillStyle=`rgba(255,255,255,${(isHov?.85:.4)*fade})`;
-      ctx.fillText('@'+node.login,node.x,node.y+r+13);
-      ctx.font='8px monospace';
-      ctx.fillStyle=`rgba(255,255,255,${.22*fade})`;
-      ctx.fillText((node.repoCount||0)+' repos · ⭐ '+(node.stars||0).toLocaleString(),node.x,node.y+r+23);
+      const showName=isHov||(camZ>.55&&r*camZ>9);
+      const showMeta=isHov||(camZ>.72&&r*camZ>11);
+      if(showName){
+        const fs=Math.max(8,Math.min(11,r*.55));
+        ctx.font=fs+'px monospace';ctx.textAlign='center';
+        ctx.fillStyle=`rgba(255,255,255,${(isHov?.85:.36)*fade})`;
+        ctx.fillText('@'+node.login,node.x,node.y+r+13);
+      }
+      if(showMeta){
+        ctx.font='8px monospace';
+        ctx.fillStyle=`rgba(255,255,255,${.2*fade})`;
+        ctx.fillText((node.repoCount||0)+' repos · ⭐ '+(node.stars||0).toLocaleString(),node.x,node.y+r+23);
+      }
     });
   }
 
