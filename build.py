@@ -21,6 +21,7 @@ import json
 import argparse
 import logging
 import sys
+import re
 from collections import defaultdict
 from pathlib import Path
 from datetime import datetime, timezone
@@ -36,6 +37,8 @@ log = logging.getLogger(__name__)
 RAW_DIR      = Path("data/raw")
 OUT_DIR      = Path("data")
 COUNTRY_DIR  = OUT_DIR / "countries"
+README_PATH  = Path("README.md")
+TARGET_COUNTRIES = 195
 
 CONTINENT_MAP = {
     "US":"NA","CN":"AS","IN":"AS","DE":"EU","GB":"EU","BR":"SA","FR":"EU",
@@ -275,6 +278,54 @@ def build_index(country_docs: list[dict]) -> dict:
     return index
 
 
+def build_ascii_progress_bar(done: int, total: int, width: int = 48) -> str:
+    total = max(1, total)
+    done = max(0, min(done, total))
+    filled = round((done / total) * width)
+    return "[" + ("█" * filled) + ("░" * (width - filled)) + "]"
+
+
+def update_readme_coverage(done: int, total: int = TARGET_COUNTRIES) -> None:
+    if not README_PATH.exists():
+        log.info("README.md not found — skipping coverage update")
+        return
+
+    text = README_PATH.read_text(encoding="utf-8")
+    percent = (done / total) * 100 if total else 0
+    percent_str = f"{percent:.2f}%"
+    bar = build_ascii_progress_bar(done, total)
+
+    # 1) Badge
+    badge_new = f"![Country Coverage](https://img.shields.io/badge/Coverage-{done}%2F{total}-3b82f6)"
+    text = re.sub(
+        r"!\[Country Coverage\]\(https://img\.shields\.io/badge/Coverage-[^\)]*\)",
+        badge_new,
+        text,
+        count=1,
+    )
+
+    # 2) Progress line + bar under coverage heading
+    progress_line = f"Progress: `{done} / {total}` countries (`{percent_str}`)"
+    bar_line = f"`{bar}`"
+
+    heading = "## Country coverage progress"
+    if heading in text:
+        pattern = r"(## Country coverage progress\n\n)(?:Progress:.*\n\n)?(?:`\[[^\n]*\]`\n?)?"
+        replacement = r"\1" + progress_line + "\n\n" + bar_line + "\n"
+        text = re.sub(pattern, replacement, text, count=1)
+    else:
+        insert = f"\n\n## Country coverage progress\n\n{progress_line}\n\n{bar_line}\n"
+        # Insert after the short project description if possible
+        marker = "Interactive GitHub data universe with a static-data pipeline and 4-level drill-down visualization."
+        if marker in text:
+            text = text.replace(marker, marker + insert, 1)
+        else:
+            text += insert
+
+    README_PATH.write_text(text, encoding="utf-8")
+    log.info(f"README coverage updated — {done}/{total} ({percent_str})")
+
+
 def main():
     parser = argparse.ArgumentParser(description="GitHub Universe Builder")
     parser.add_argument("--top-cities", type=int, default=6,  help="Cities per country (default 6)")
@@ -318,6 +369,7 @@ def main():
             log.warning(f"Could not read {p}: {e}")
 
     index = build_index(all_docs)
+    update_readme_coverage(index.get("totalCountries", 0), TARGET_COUNTRIES)
 
     log.info(
         f"Done — {index['totalCountries']} countries, "

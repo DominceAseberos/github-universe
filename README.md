@@ -9,7 +9,7 @@ Interactive GitHub data universe with a static-data pipeline and 4-level drill-d
 
 Progress: `3 / 195` countries (`1.54%`)
 
-`[█░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░]`
+`[█░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░]`
 
 ## Project purpose
 
