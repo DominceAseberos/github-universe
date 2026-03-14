@@ -494,6 +494,39 @@ def extract_city(location: str | None, country_code: str | None = None) -> str |
     return None
 
 
+# ── Follower-range buckets ─────────────────────────────────────────────────────
+# Each bucket is a separate GitHub search query (max 1000 results each).
+# Normal mode:  5 follower buckets  → up to  5,000 unique users/country
+# Deep mode:   5 × 19 year buckets  → up to 95,000 unique users/country
+FOLLOWER_BUCKETS = [
+    "followers:>=500",    # power users
+    "followers:100..499", # active community members
+    "followers:10..99",   # regular devs
+    "followers:1..9",     # casual users
+    "followers:0",        # newcomers / private accounts
+]
+
+# GitHub launched in 2008; split by year for fine-grained windows
+CREATED_YEAR_BUCKETS = [
+    f"created:{y}-01-01..{y}-12-31" for y in range(2008, 2027)
+]
+
+
+def build_query_buckets(deep: bool) -> list[str]:
+    """
+    Return list of extra query filter strings (appended to the base query).
+    Normal : one filter per follower range  →  5 buckets
+    Deep   : follower × created-year grid  → 95 buckets
+    """
+    if not deep:
+        return FOLLOWER_BUCKETS
+    buckets = []
+    for f in FOLLOWER_BUCKETS:
+        for d in CREATED_YEAR_BUCKETS:
+            buckets.append(f"{f} {d}")
+    return buckets
+
+
 # ── Per-country scraper ───────────────────────────────────────────────────────
 def scrape_country(
     client: GitHubClient,
@@ -501,122 +534,130 @@ def scrape_country(
     name: str,
     only_with_repos: bool = False,
     skip_seen: bool = True,
+    deep: bool = False,
 ) -> dict:
     """
-    Fetch up to MAX_USERS_PER_COUNTRY users from this country,
-    get their repos, extract city from location.
-    Returns a summary dict and writes raw JSONL file.
+    Scrape users from `name` (country) across query buckets.
+    Normal mode : 5 follower buckets → up to   5,000 unique users/country
+    Deep mode   : 5×19 year grid    → up to  95,000 unique users/country
+    Already-seen logins are always skipped (deduplicated across buckets).
     """
     out_file = RAW_DIR / f"{code}.jsonl"
-    lines_written = 0
     city_counts: dict[str, int] = {}
     lang_counts: dict[str, int] = {}
     total_stars = 0
     total_repos_collected = 0
+    lines_written = 0
     users_skipped_no_repos = 0
     users_skipped_seen = 0
     seen_logins = load_seen_logins(code) if skip_seen else set()
 
-    mode = "append+dedupe" if skip_seen else "fresh"
-    log.info(f"[{code}] Starting — {name} ({mode})")
+    buckets = build_query_buckets(deep)
+    mode_str = f"{'append+dedupe' if skip_seen else 'fresh'}, {'deep' if deep else 'normal'}, {len(buckets)} buckets"
+    log.info(f"[{code}] Starting — {name} ({mode_str})")
     if not skip_seen:
         log.warning(f"[{code}] --fresh mode: existing data will be overwritten!")
 
     open_mode = "a" if skip_seen else "w"
     with open(out_file, open_mode, encoding="utf-8") as fh:
-        for page in range(1, (MAX_USERS_PER_COUNTRY // USERS_PER_PAGE) + 1):
-            result = client.get("/search/users", params={
-                "q": f"location:{name} type:user",
-                "per_page": USERS_PER_PAGE,
-                "page": page,
-                "sort": "repositories",
-                "order": "desc",
-            })
-            if not result:
-                break
 
-            items = result.get("items", [])
-            if not items:
-                break
+        for bucket_idx, followers_filter in enumerate(buckets):
+            query = f"location:{name} type:user {followers_filter}"
+            bucket_new = 0
+            log.info(f"[{code}] bucket {bucket_idx+1}/{len(buckets)}: {followers_filter}")
 
-            for user in items:
-                login = user["login"]
-                login_key = login.lower()
-                if skip_seen and login_key in seen_logins:
-                    users_skipped_seen += 1
-                    continue
+            for page in range(1, (MAX_USERS_PER_COUNTRY // USERS_PER_PAGE) + 1):
+                result = client.get("/search/users", params={
+                    "q": query,
+                    "per_page": USERS_PER_PAGE,
+                    "page": page,
+                    "sort": "repositories",
+                    "order": "desc",
+                })
+                if not result:
+                    break
 
-                # Search API items do not include profile location reliably.
-                # Fetch user profile for location/city extraction.
-                user_profile = client.get(f"/users/{login}") or {}
-                location_raw = user_profile.get("location") or user.get("location")
-                location = sanitize_location(location_raw)
-                city = extract_city(location, country_code=code)
+                items = result.get("items", [])
+                if not items:
+                    break
 
-                # Get user's top repos
-                repos_raw = client.get(f"/users/{login}/repos", params={
-                    "sort": "stars",
-                    "per_page": REPOS_PER_USER,
-                    "type": "owner",
-                }) or []
+                for user in items:
+                    login = user["login"]
+                    login_key = login.lower()
+                    if login_key in seen_logins:
+                        users_skipped_seen += 1
+                        continue
 
-                repos = []
-                for r in repos_raw:
-                    if r.get("fork"):
-                        continue  # skip forks
-                    lang = r.get("language") or "Unknown"
-                    stars = r.get("stargazers_count", 0)
-                    repos.append({
-                        "id":          r["id"],
-                        "name":        r["name"],
-                        "full_name":   r["full_name"],
-                        "description": (r.get("description") or "")[:120],
-                        "language":    lang,
-                        "stars":       stars,
-                        "forks":       r.get("forks_count", 0),
-                        "topics":      r.get("topics", [])[:5],
-                        "url":         r.get("html_url", ""),
-                        "pushed_at":   r.get("pushed_at", ""),
-                    })
-                    lang_counts[lang] = lang_counts.get(lang, 0) + 1
-                    total_stars += stars
+                    # Fetch full profile for reliable location data
+                    user_profile = client.get(f"/users/{login}") or {}
+                    location_raw = user_profile.get("location") or user.get("location")
+                    location = sanitize_location(location_raw)
+                    city = extract_city(location, country_code=code)
 
-                if city:
-                    city_counts[city] = city_counts.get(city, 0) + 1
+                    # Get user's top repos
+                    repos_raw = client.get(f"/users/{login}/repos", params={
+                        "sort": "stars",
+                        "per_page": REPOS_PER_USER,
+                        "type": "owner",
+                    }) or []
 
-                if only_with_repos and not repos:
-                    users_skipped_no_repos += 1
-                    time.sleep(0.3)
-                    continue
+                    repos = []
+                    for r in repos_raw:
+                        if r.get("fork"):
+                            continue
+                        lang = r.get("language") or "Unknown"
+                        stars = r.get("stargazers_count", 0)
+                        repos.append({
+                            "id":          r["id"],
+                            "name":        r["name"],
+                            "full_name":   r["full_name"],
+                            "description": (r.get("description") or "")[:120],
+                            "language":    lang,
+                            "stars":       stars,
+                            "forks":       r.get("forks_count", 0),
+                            "topics":      r.get("topics", [])[:5],
+                            "url":         r.get("html_url", ""),
+                            "pushed_at":   r.get("pushed_at", ""),
+                        })
+                        lang_counts[lang] = lang_counts.get(lang, 0) + 1
+                        total_stars += stars
 
-                total_repos_collected += len(repos)
+                    if city:
+                        city_counts[city] = city_counts.get(city, 0) + 1
 
-                record = {
-                    "login":    login,
-                    "location": location,
-                    "city":     city,
-                    "country":  code,
-                    "repos":    repos,
-                }
-                fh.write(json.dumps(record, ensure_ascii=False) + "\n")
-                fh.flush()   # write immediately so Ctrl+C doesn't lose data
-                lines_written += 1
-                if skip_seen:
+                    if only_with_repos and not repos:
+                        users_skipped_no_repos += 1
+                        time.sleep(0.3)
+                        continue
+
+                    total_repos_collected += len(repos)
+
+                    record = {
+                        "login":    login,
+                        "location": location,
+                        "city":     city,
+                        "country":  code,
+                        "repos":    repos,
+                    }
+                    fh.write(json.dumps(record, ensure_ascii=False) + "\n")
+                    fh.flush()
+                    lines_written += 1
+                    bucket_new += 1
                     seen_logins.add(login_key)
-                # small delay to stay well under the 5000 req/hr core limit
-                time.sleep(0.3)
+                    time.sleep(0.3)
 
-            log.info(
-                f"[{code}] page {page}/{MAX_USERS_PER_COUNTRY//USERS_PER_PAGE} "
-                f"— {lines_written} users, {total_repos_collected} repos "
-                f"— core: {client.rate_remaining} left, search: {client.search_remaining} left"
-            )
+                log.info(
+                    f"[{code}] bucket {bucket_idx+1} page {page}/10 "
+                    f"— +{bucket_new} new this bucket, {lines_written} total "
+                    f"— core: {client.rate_remaining} left, search: {client.search_remaining} left"
+                )
 
-            if len(items) < USERS_PER_PAGE:
-                break  # last page
+                if len(items) < USERS_PER_PAGE:
+                    break
 
-            # Search API allows 30 req/min — short delay between pages
-            time.sleep(1)
+                time.sleep(1)
+
+            log.info(f"[{code}] bucket {bucket_idx+1}/{len(buckets)} done — {bucket_new} new users added")
 
     summary = {
         "code":       code,
@@ -631,9 +672,8 @@ def scrape_country(
         "scraped_at": str(datetime.now(timezone.utc)),
     }
     log.info(
-        f"[{code}] Done — {lines_written} users, {total_repos_collected} repos, "
-        f"skipped-no-repos: {users_skipped_no_repos}, skipped-seen: {users_skipped_seen}, "
-        f"top city: {summary['top_cities'][:1]}"
+        f"[{code}] Done — {lines_written} new users, {total_repos_collected} repos, "
+        f"skipped-seen: {users_skipped_seen}, top city: {summary['top_cities'][:1]}"
     )
     return summary
 
@@ -649,6 +689,7 @@ def main():
     parser.add_argument("--only-with-repos", action="store_true", help="Only keep users with at least 1 non-fork repo")
     parser.add_argument("--skip-seen", action="store_true", default=True, help="(default) Append mode: skip users already in data/raw/{CODE}.jsonl")
     parser.add_argument("--fresh",     action="store_true", help="Wipe existing country data and start from scratch")
+    parser.add_argument("--deep",      action="store_true", help="Deep mode: 5 follower × 19 year buckets = up to 95,000 users/country")
     args = parser.parse_args()
 
     RAW_DIR.mkdir(parents=True, exist_ok=True)
@@ -672,15 +713,16 @@ def main():
         log.info(f"Resuming — skipping {len(skipped)} already-done countries")
 
     log.info(f"Scraping {len(target)} countries with {args.workers} worker(s)")
-    log.info(f"Max {MAX_USERS_PER_COUNTRY} users × {REPOS_PER_USER} repos each")
+
+    # --fresh overrides --skip-seen
+    effective_skip_seen = not args.fresh
+    effective_buckets = build_query_buckets(args.deep)
+    log.info(f"Query plan: {'deep' if args.deep else 'normal'} mode — {len(effective_buckets)} buckets/country, up to {len(effective_buckets) * MAX_USERS_PER_COUNTRY:,} users/country")
 
     if args.dry_run:
         for code, name in target:
             print(f"  {code}  {name}")
         return
-
-    # --fresh overrides --skip-seen
-    effective_skip_seen = not args.fresh
 
     client = GitHubClient(args.token)
 
@@ -700,6 +742,7 @@ def main():
                 name,
                 only_with_repos=args.only_with_repos,
                 skip_seen=effective_skip_seen,
+                deep=args.deep,
             )
             with threading.Lock():
                 progress["done"].append(code)

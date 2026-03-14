@@ -385,6 +385,9 @@ let mx=-9999,my=-9999;
 
 // scene objects per level
 let galaxyNodes  = [];  // level 0: country galaxies
+// Countries that actually have scraped data — populated from index.json at boot.
+// Falls back to full COUNTRIES list until index.json is loaded.
+let ACTIVE_COUNTRIES = COUNTRIES;
 let planetNodes  = [];  // level 1: city/region planets
 let userNodes    = [];  // level 2: users in a city
 let repoStars    = [];  // level 3: repo stars
@@ -392,6 +395,101 @@ let bgStars      = [];
 let particles    = [];
 let hoveredNode  = null;
 let searchQuery  = '';
+
+// SVG universe backdrop presets (change `universePresetKey` to swap style)
+const UNIVERSE_PRESETS = {
+  blackHole: {
+    name:'The Black Hole',
+    colors:{a:'#ff9a3d', b:'#7f1d1d', c:'#000000'},
+    angle:15, blur:2, thickness:10,
+  },
+  goldenNebula: {
+    name:'Golden Nebula',
+    colors:{a:'#fbbf24', b:'#f59e0b', c:'#ffffff'},
+    angle:-45, blur:15, thickness:80,
+  },
+  toxicAlien: {
+    name:'Toxic / Alien',
+    colors:{a:'#84cc16', b:'#d9f99d', c:'#14532d'},
+    angle:70, blur:8, thickness:40,
+  },
+  classicSpiral: {
+    name:'Classic Spiral',
+    colors:{a:'#1e40af', b:'#00ffff', c:'#ffffff'},
+    angle:0, blur:8, thickness:25,
+  },
+};
+let universePresetKey = 'classicSpiral';
+let universeImg = null;
+let universeImgReady = false;
+
+function buildUniverseSvg(preset){
+  const {colors, angle, blur, thickness} = preset;
+  const ryScale = Math.max(.35, thickness / 25);
+  const e = [60,50,40,35,30,25].map(v=>Math.max(6, Math.round(v * ryScale)));
+  return `<svg viewBox="0 0 500 500" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <filter id="blurFilter" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="${blur}" />
+    </filter>
+
+    <radialGradient id="armGradient1">
+      <stop offset="0%" stop-color="${colors.b}" />
+      <stop offset="20%" stop-color="${colors.a}" />
+      <stop offset="100%" stop-color="${colors.c}" stop-opacity="0" />
+    </radialGradient>
+
+    <radialGradient id="armGradient2">
+      <stop offset="0%" stop-color="${colors.a}" />
+      <stop offset="60%" stop-color="${colors.b}" stop-opacity="0.8" />
+      <stop offset="100%" stop-color="${colors.c}" stop-opacity="0" />
+    </radialGradient>
+
+    <radialGradient id="coreGlow">
+      <stop offset="0%" stop-color="#fff" />
+      <stop offset="40%" stop-color="${colors.a}" />
+      <stop offset="100%" stop-color="${colors.a}" stop-opacity="0" />
+    </radialGradient>
+  </defs>
+
+  <g transform="translate(250, 250) rotate(${angle})">
+    <g filter="url(#blurFilter)" opacity="0.6">
+      <path d="M0,0 C150,0 300,-50 250,-100 C150,-50 0,0 0,0" fill="url(#armGradient1)" />
+      <path d="M0,0 C-150,0 -300,50 -250,100 C-150,50 0,0 0,0" fill="url(#armGradient2)" />
+    </g>
+
+    <g filter="url(#blurFilter)" fill="none">
+      <ellipse rx="240" ry="${e[0]}" stroke="${colors.b}" stroke-width="2" opacity="0.2" />
+      <ellipse rx="210" ry="${e[1]}" stroke="${colors.a}" stroke-width="3" opacity="0.3" transform="rotate(1)" />
+      <ellipse rx="180" ry="${e[2]}" stroke="${colors.c}" stroke-width="4" opacity="0.4" transform="rotate(-2)" />
+      <ellipse rx="150" ry="${e[3]}" stroke="${colors.a}" stroke-width="2" opacity="0.3" />
+      <ellipse rx="120" ry="${e[4]}" stroke="${colors.b}" stroke-width="5" opacity="0.5" />
+      <ellipse rx="90" ry="${e[5]}" stroke="#fff" stroke-width="2" opacity="0.6" />
+    </g>
+
+    <ellipse rx="100" ry="${Math.max(8, Math.round(thickness))}" fill="url(#coreGlow)" filter="url(#blurFilter)" />
+    <circle r="8" fill="#fff" />
+  </g>
+</svg>`;
+}
+
+function rebuildUniverseBackdrop(){
+  const preset = UNIVERSE_PRESETS[universePresetKey] || UNIVERSE_PRESETS.classicSpiral;
+  const svg = buildUniverseSvg(preset);
+  const data = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+  const img = new Image();
+  universeImgReady = false;
+  img.onload = ()=>{ universeImg = img; universeImgReady = true; };
+  img.src = data;
+}
+
+function setUniversePreset(key){
+  if(!UNIVERSE_PRESETS[key]) return;
+  universePresetKey = key;
+  rebuildUniverseBackdrop();
+  setStatus('universe style: ' + UNIVERSE_PRESETS[key].name);
+}
+window.setUniversePreset = setUniversePreset;
 
 // loaded data cache
 const countryData = {}; // code -> {repos, langs, stars, devs, cities}
@@ -462,18 +560,22 @@ function buildBgStars(){
 function buildGalaxy(){
   buildBgStars();
   const golden=Math.PI*(3-Math.sqrt(5));
-  const maxR=Math.min(W,H)*.44;
-  const minR=Math.min(W,H)*.07;
-  const filtered=COUNTRIES.filter(c=>!filterContinent||c[2]===filterContinent);
+  // Use W and H independently so nodes fill the full canvas (not just a central square)
+  const maxRX=W*.46, maxRY=H*.43;
+  const minRX=W*.10, minRY=H*.10;
+  const filtered=ACTIVE_COUNTRIES.filter(c=>!filterContinent||c[2]===filterContinent);
 
   galaxyNodes=filtered.map((c,i)=>{
     const t=filtered.length<2?0.5:i/(filtered.length-1);
-    const sR=minR+t*(maxR-minR);
+    // spread t non-linearly so nodes don't bunch in the center
+    const tSpread=Math.pow(t,.7);
+    const sRX=minRX+tSpread*(maxRX-minRX);
+    const sRY=minRY+tSpread*(maxRY-minRY);
     const ang=i*golden;
-    const x=W/2+Math.cos(ang)*sR;
-    const y=H/2+Math.sin(ang)*sR;
+    const x=W/2+Math.cos(ang)*sRX;
+    const y=H/2+Math.sin(ang)*sRY;
     const w=c[4];
-    const r=3+w*.22; // 3-25px
+    const r=5+w*.25; // slightly larger nodes
     const col=CONTINENT_COLORS[c[2]]||'#7a8899';
     return {
       country:c[0],code:c[1],continent:c[2],flag:c[3],weight:w,
@@ -541,10 +643,14 @@ function buildSolarSystem(countryNode){
   buildBgStars();
   const cities=(countryData[countryNode.code]?.cities?.length ? countryData[countryNode.code].cities : getCities(countryNode.code));
   const sunR=Math.min(W,H)*.07;
-  const maxOrbit=Math.min(W,H)*.42;
+  const maxOrbitX=W*.46;
+  const maxOrbitY=H*.43;
 
   planetNodes=cities.map((city,i)=>{
-    const orbitR=sunR*2.5+i*(maxOrbit-sunR*2.5)/Math.max(cities.length-1,1);
+    const t=cities.length<2?0.5:i/(cities.length-1);
+    const tSpread=Math.pow(t,.7);
+    const orbitRX=sunR*2.5+tSpread*(maxOrbitX-sunR*2.5);
+    const orbitRY=sunR*2.5+tSpread*(maxOrbitY-sunR*2.5);
     const phase=rnd(0,Math.PI*2);
     const speed=.12+i*.03;
     const key=countryNode.code+'_'+city;
@@ -557,9 +663,11 @@ function buildSolarSystem(countryNode){
 
     return {
       city,code:countryNode.code,countryNode,
-      orbitR,phase,speed,
-      x:W/2+Math.cos(phase)*orbitR,
-      y:H/2+Math.sin(phase)*orbitR,
+      orbitRX,orbitRY,
+      orbitR:Math.max(orbitRX,orbitRY),
+      phase,speed,
+      x:W/2+Math.cos(phase)*orbitRX,
+      y:H/2+Math.sin(phase)*orbitRY,
       r:pR, color:col, rgb:hexToRgb(col),
       users:cityUsers, repos:cityRepos, userCount:cityUsers.length, repoCount:cityDoc?.repoCount||cityRepos.length, stars:cStars,
       loaded:cityData.hasOwnProperty(key),
@@ -605,16 +713,19 @@ function buildPopulationField(planetNode){
   const users=planetNode.users||[];
   const maxMetric=Math.max(...users.map(u=>Math.max(u.repoCount||0, u.stars||0)),1);
   const golden=Math.PI*(3-Math.sqrt(5));
-  const maxR=Math.min(W,H)*.42;
+  const maxRX=W*.46, maxRY=H*.43;
+  const minRX=W*.09, minRY=H*.09;
 
   userNodes=users.map((user,i)=>{
     const t=users.length<2?0.5:i/(users.length-1);
-    const sR=40+t*(maxR-40);
+    const tSpread=Math.pow(t,.7);
+    const sRX=minRX+tSpread*(maxRX-minRX);
+    const sRY=minRY+tSpread*(maxRY-minRY);
     const ang=i*golden;
-    const x=W/2+Math.cos(ang)*sR;
-    const y=H/2+Math.sin(ang)*sR;
+    const x=W/2+Math.cos(ang)*sRX;
+    const y=H/2+Math.sin(ang)*sRY;
     const norm=(Math.max(user.repoCount||0, user.stars||0))/maxMetric;
-    const r=4+norm*18;
+    const r=5+norm*20;
     const col=nameToColor(user.login);
     return {
       ...user,
@@ -633,16 +744,19 @@ function buildRepoField(userNode){
   const repos=userNode.repos||[];
   const maxS=Math.max(...repos.map(r=>(r.stars??r.stargazers_count??0)),1);
   const golden=Math.PI*(3-Math.sqrt(5));
-  const maxR=Math.min(W,H)*.42;
+  const maxRX=W*.46, maxRY=H*.43;
+  const minRX=W*.09, minRY=H*.09;
 
   repoStars=repos.map((repo,i)=>{
     const t=repos.length<2?0.5:i/(repos.length-1);
-    const sR=40+t*(maxR-40);
+    const tSpread=Math.pow(t,.7);
+    const sRX=minRX+tSpread*(maxRX-minRX);
+    const sRY=minRY+tSpread*(maxRY-minRY);
     const ang=i*golden;
-    const x=W/2+Math.cos(ang)*sR;
-    const y=H/2+Math.sin(ang)*sR;
+    const x=W/2+Math.cos(ang)*sRX;
+    const y=H/2+Math.sin(ang)*sRY;
     const norm=((repo.stars??repo.stargazers_count??0))/maxS;
-    const r=4+norm*18;
+    const r=5+norm*20;
     const col=LANG_COLORS[repo.language]||LANG_COLORS.Unknown;
     return {
       repo,x,y,r,col,rgb:hexToRgb(col),norm,
@@ -840,7 +954,7 @@ function updateLevelDots(){
 // ═══════════════════════════════════════════════════════════════════════════════
 function updateOverview(){
   const loaded=Object.values(countryData);
-  const totalCountries=loaded.length||COUNTRIES.length;
+  const totalCountries=loaded.length||ACTIVE_COUNTRIES.length;
   const totalRepos=loaded.reduce((s,d)=>s+(d.repoCount||0),0);
   const totalStars=loaded.reduce((s,d)=>s+(d.totalStars||0),0);
   const totalDevs=loaded.reduce((s,d)=>s+(d.devs||0),0);
@@ -851,7 +965,7 @@ function updateOverview(){
   const topLang=Object.entries(allLangs).sort((a,b)=>b[1]-a[1])[0]?.[0]||'—';
   const topLangColor=LANG_COLORS[topLang]||'#fff';
 
-  document.getElementById('ov-countries').textContent=COUNTRIES.filter(c=>!filterContinent||c[2]===filterContinent).length;
+  document.getElementById('ov-countries').textContent=ACTIVE_COUNTRIES.filter(c=>!filterContinent||c[2]===filterContinent).length;
   document.getElementById('ov-repos').textContent=fmt(totalRepos);
   document.getElementById('ov-repos-sub').textContent=loaded.length+' countries sampled';
   document.getElementById('ov-stars').textContent=fmt(totalStars);
@@ -902,6 +1016,102 @@ function drawCore(x,y,r,rgb,a){
   g.addColorStop(.3,`rgba(${rgb.r},${rgb.g},${rgb.b},${a})`);
   g.addColorStop(1,`rgba(${Math.round(rgb.r*.5)},${Math.round(rgb.g*.5)},${Math.round(rgb.b*.5)},${a*.6})`);
   ctx.beginPath();ctx.arc(x,y,r,0,Math.PI*2);ctx.fillStyle=g;ctx.fill();
+}
+
+const countrySpriteCache = new Map();
+function hashString(s){
+  let h=2166136261;
+  for(let i=0;i<s.length;i++){
+    h^=s.charCodeAt(i);
+    h=Math.imul(h,16777619);
+  }
+  return h>>>0;
+}
+function seededUnit(seed,n){
+  const x=Math.sin((seed+n*131)*12.9898)*43758.5453;
+  return x-Math.floor(x);
+}
+function clamp255(v){return Math.max(0,Math.min(255,Math.round(v)));}
+
+function buildCountrySpriteSvg(key, hex){
+  const seed=hashString(key);
+  const rgb=hexToRgb(hex);
+  const rBoost=.95+seededUnit(seed,1)*.5;
+  const gBoost=.95+seededUnit(seed,2)*.5;
+  const bBoost=.95+seededUnit(seed,3)*.5;
+  const rMid=.45+seededUnit(seed,4)*.55;
+  const gMid=.45+seededUnit(seed,5)*.55;
+  const bMid=.45+seededUnit(seed,6)*.55;
+  const rLow=.20+seededUnit(seed,7)*.35;
+  const gLow=.20+seededUnit(seed,8)*.35;
+  const bLow=.20+seededUnit(seed,9)*.35;
+  const c1=`rgb(${clamp255(rgb.r*rBoost)},${clamp255(rgb.g*gBoost)},${clamp255(rgb.b*bBoost)})`;
+  const c2=`rgb(${clamp255(rgb.r*rMid)},${clamp255(rgb.g*gMid)},${clamp255(rgb.b*bMid)})`;
+  const c3=`rgb(${clamp255(rgb.r*rLow)},${clamp255(rgb.g*gLow)},${clamp255(rgb.b*bLow)})`;
+  const rotation=Math.round(-55+seededUnit(seed,10)*110);
+  const blur=(2+seededUnit(seed,11)*10).toFixed(1);
+  const thicknessScale=.65+seededUnit(seed,12)*1.25;
+  const ry1=Math.round(56*thicknessScale);
+  const ry2=Math.round(44*thicknessScale);
+  const ry3=Math.round(32*thicknessScale);
+  const coreRy=Math.round(21*thicknessScale);
+  return `<svg viewBox="0 0 500 500" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <filter id="b" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="${blur}" />
+    </filter>
+    <radialGradient id="g1">
+      <stop offset="0%" stop-color="${c1}" />
+      <stop offset="30%" stop-color="${c2}" />
+      <stop offset="100%" stop-color="${c3}" stop-opacity="0" />
+    </radialGradient>
+    <radialGradient id="g2">
+      <stop offset="0%" stop-color="#ffffff" />
+      <stop offset="45%" stop-color="${c1}" />
+      <stop offset="100%" stop-color="${c2}" stop-opacity="0" />
+    </radialGradient>
+  </defs>
+  <g transform="translate(250 250) rotate(${rotation})">
+    <g filter="url(#b)" opacity="0.7">
+      <path d="M0,0 C130,0 260,-40 220,-90 C130,-45 0,0 0,0" fill="url(#g1)" />
+      <path d="M0,0 C-130,0 -260,40 -220,90 C-130,45 0,0 0,0" fill="url(#g1)" />
+    </g>
+    <g filter="url(#b)" fill="none">
+      <ellipse rx="205" ry="${ry1}" stroke="${c2}" stroke-width="3" opacity="0.28" />
+      <ellipse rx="170" ry="${ry2}" stroke="${c1}" stroke-width="4" opacity="0.36" transform="rotate(-2)" />
+      <ellipse rx="130" ry="${ry3}" stroke="#ffffff" stroke-width="2" opacity="0.55" />
+    </g>
+    <ellipse rx="86" ry="${coreRy}" fill="url(#g2)" filter="url(#b)" />
+    <circle r="8" fill="#fff" />
+  </g>
+</svg>`;
+}
+
+function getCountrySprite(key, hex){
+  const cacheKey=key+'|'+hex;
+  if(countrySpriteCache.has(cacheKey)) return countrySpriteCache.get(cacheKey);
+  const entry={img:null,ready:false};
+  countrySpriteCache.set(cacheKey,entry);
+  const svg=buildCountrySpriteSvg(key, hex);
+  const img=new Image();
+  img.onload=()=>{entry.img=img;entry.ready=true;};
+  img.src='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(svg);
+  return entry;
+}
+
+function drawCountrySprite(x,y,r,key,hex,isHov,fade,rgb){
+  const entry=getCountrySprite(key,hex);
+  const size=r*(isHov?9.5:8.3);
+  if(entry.ready&&entry.img){
+    ctx.save();
+    ctx.globalAlpha=(isHov?.9:.78)*fade;
+    ctx.drawImage(entry.img,x-size/2,y-size/2,size,size);
+    ctx.restore();
+    drawGlow(x,y,r*(isHov?3.2:2.5),rgb,(isHov?.18:.09)*fade);
+  }else{
+    drawGlow(x,y,r*(isHov?4.5:3),rgb,(isHov?.2:.1)*fade);
+    drawCore(x,y,r,rgb,.9*fade);
+  }
 }
 
 function drawFrame(){
@@ -960,8 +1170,7 @@ function drawFrame(){
         ctx.setLineDash([]);
       }
 
-      drawGlow(node.x,node.y,r*(isHov?4.5:3),node.rgb,(isHov?.2:.1)*fade);
-      drawCore(node.x,node.y,r,node.rgb,.9*fade);
+      drawCountrySprite(node.x,node.y,r,node.code,node.col,isHov,fade,node.rgb);
 
       if(isHov){
         ctx.beginPath();ctx.arc(node.x,node.y,r+6,0,Math.PI*2);
@@ -986,7 +1195,7 @@ function drawFrame(){
     // draw orbit rings
     planetNodes.forEach(p=>{
       if(!cityMatchesSearch(p)) return;
-      ctx.beginPath();ctx.arc(CX,CY,p.orbitR,0,Math.PI*2);
+      ctx.beginPath();ctx.ellipse(CX,CY,p.orbitRX,p.orbitRY,0,0,Math.PI*2);
       ctx.strokeStyle='rgba(255,255,255,.04)';ctx.lineWidth=.5;
       ctx.setLineDash([3,9]);ctx.stroke();ctx.setLineDash([]);
     });
@@ -1016,8 +1225,8 @@ function drawFrame(){
       const age=time-p.birthTime; if(age<0)return;
       const fade=Math.min(1,age/.8);
       const angle=paused?p.phase:time*p.speed+p.phase;
-      p.x=CX+Math.cos(angle)*p.orbitR;
-      p.y=CY+Math.sin(angle)*p.orbitR;
+      p.x=CX+Math.cos(angle)*p.orbitRX;
+      p.y=CY+Math.sin(angle)*p.orbitRY;
       const pulse=Math.sin(time*p.pulseSpeed+p.pulsePhase)*.1;
       const r=p.r*(1+pulse)*fade;
       const isHov=Math.hypot(mw.x-p.x,mw.y-p.y)<r+10/camZ;
@@ -1285,6 +1494,13 @@ document.addEventListener('keydown',e=>{
   if(e.key==='/' && tag!=='INPUT' && tag!=='TEXTAREA'){
     e.preventDefault();
     searchInput.focus();
+    return;
+  }
+  if((e.key==='u'||e.key==='U') && tag!=='INPUT' && tag!=='TEXTAREA'){
+    const keys=Object.keys(UNIVERSE_PRESETS);
+    const i=keys.indexOf(universePresetKey);
+    const next=keys[(i+1)%keys.length];
+    setUniversePreset(next);
   }
 });
 
@@ -1338,6 +1554,12 @@ async function restorePersistedData(){
   setStatus('loading universe index…');
   const index = await loadIndex();
   if(!index){ setStatus('no data — run scraper.py + build.py first'); return; }
+
+  // Narrow the galaxy to only countries that have real scraped data
+  const indexCodes = new Set((index.countries||[]).map(c=>c.code));
+  ACTIVE_COUNTRIES = COUNTRIES.filter(c => indexCodes.has(c[1]));
+  buildGalaxy(); // rebuild now that ACTIVE_COUNTRIES is set
+  updateOverview();
 
   // Populate galaxy nodes with real stats from index
   (index.countries||[]).forEach(c=>{
