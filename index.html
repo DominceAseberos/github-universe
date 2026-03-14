@@ -81,6 +81,10 @@ canvas{position:fixed;inset:0;display:block;width:100%;height:100%}
   color:rgba(255,255,255,.85);font-family:inherit;font-size:10px;
   padding:6px 9px;outline:none;transition:border-color .2s;
 }
+.tp-input option{
+  color:#0d1326;
+  background:#eef3ff;
+}
 .tp-input:focus{border-color:rgba(100,160,255,.4)}
 .tp-input::placeholder{color:rgba(255,255,255,.18)}
 #tp-btn{
@@ -92,6 +96,16 @@ canvas{position:fixed;inset:0;display:block;width:100%;height:100%}
 }
 #tp-btn:hover{background:rgba(80,130,255,.25)}
 #tp-btn:disabled{opacity:.4;cursor:not-allowed}
+/* ── FPS HUD ── */
+#fps-hud{
+  position:absolute;bottom:18px;right:20px;
+  background:rgba(2,3,12,.72);border:1px solid rgba(255,255,255,.1);
+  border-radius:20px;padding:4px 11px;
+  font-size:10px;color:rgba(255,255,255,.7);letter-spacing:.8px;
+  pointer-events:none;backdrop-filter:blur(8px);
+  font-family:monospace;white-space:nowrap;
+  transition:opacity .4s;
+}
 #tp-status{margin-top:7px;font-size:9px;color:rgba(255,255,255,.28);text-align:center;min-height:13px;letter-spacing:.5px}
 #tp-status.ok{color:rgba(80,210,120,.7)}
 #tp-status.err{color:rgba(220,90,90,.7)}
@@ -193,6 +207,8 @@ canvas{position:fixed;inset:0;display:block;width:100%;height:100%}
     <button class="ctrl-btn" id="btn-token" title="GitHub token">⚙</button>
   </div>
 
+  <div id="fps-hud">— fps</div>
+
   <div id="token-panel" style="display:none">
     <h3>Filter Universe</h3>
     <div class="tp-field">
@@ -205,6 +221,15 @@ canvas{position:fixed;inset:0;display:block;width:100%;height:100%}
         <option value="SA">South America</option>
         <option value="AF">Africa</option>
         <option value="OC">Oceania</option>
+      </select>
+    </div>
+    <div class="tp-field">
+      <div class="tp-label">Performance</div>
+      <select class="tp-input" id="tp-perf">
+        <option value="auto">Auto</option>
+        <option value="high">High</option>
+        <option value="mid">Mid</option>
+        <option value="low">Low</option>
       </select>
     </div>
     <button id="tp-btn">Apply filter</button>
@@ -396,6 +421,8 @@ let particles    = [];
 let hoveredNode  = null;
 let searchQuery  = '';
 let indexSummary = null;
+let perfOverride = localStorage.getItem('ghu_perf_mode') || 'auto';
+let fpsTimes = [], fpsLast = 0;
 
 // SVG universe backdrop presets (change `universePresetKey` to swap style)
 const UNIVERSE_PRESETS = {
@@ -1208,16 +1235,33 @@ function drawCountrySprite(x,y,r,key,hex,isHov,fade,rgb,quality='high'){
   }
 }
 
-function drawFrame(){
+function drawFrame(ts=performance.now()){
   if(!paused) time+=.016;
   camX=lerp(camX,tCamX,.07); camY=lerp(camY,tCamY,.07); camZ=lerp(camZ,tCamZ,.07);
 
+  // FPS tracking — rolling 1-second window
+  fpsTimes.push(ts);
+  fpsTimes=fpsTimes.filter(t=>ts-t<1000);
+  const fpsNow=fpsTimes.length;
+
   // Adaptive perf profile for dense level-0 views.
   let perfMode='high';
-  if(level===0){
+  if(perfOverride==='auto' && level===0){
     const visibleCountries=galaxyNodes.reduce((n,node)=>n+(countryMatchesSearch(node)?1:0),0);
     if(visibleCountries>130) perfMode='low';
     else if(visibleCountries>80) perfMode='mid';
+  }else if(perfOverride!=='auto'){
+    perfMode=perfOverride;
+  }
+
+  // Update FPS HUD every 500ms
+  if(ts-fpsLast>500){
+    fpsLast=ts;
+    const fpsEl=document.getElementById('fps-hud');
+    if(fpsEl){
+      const col=fpsNow>=50?'#4de88e':fpsNow>=30?'#f0c060':'#f06060';
+      fpsEl.innerHTML=`<span style="color:${col};font-weight:700">${fpsNow}</span>\u202ffps\u202f·\u202f<span style="opacity:.55">${perfMode.toUpperCase()}</span>`;
+    }
   }
 
   ctx.clearRect(0,0,W,H);
@@ -1612,6 +1656,8 @@ document.addEventListener('keydown',e=>{
 // token panel
 document.getElementById('tp-btn').onclick=async()=>{
   filterContinent=document.getElementById('tp-continent').value;
+  perfOverride=document.getElementById('tp-perf').value;
+  localStorage.setItem('ghu_perf_mode', perfOverride);
   level=0;activeCountry=null;activePlanet=null;activeUser=null;userNodes=[];
   buildGalaxy();updateBreadcrumb();updateLevelDots();
   tCamX=0;tCamY=0;tCamZ=1;
@@ -1620,6 +1666,13 @@ document.getElementById('tp-btn').onclick=async()=>{
   updateOverview();
   document.getElementById('token-panel').style.display='none';
 };
+
+// restore persisted perf mode in panel
+const perfSelect=document.getElementById('tp-perf');
+if(perfSelect){
+  if(!['auto','high','mid','low'].includes(perfOverride)) perfOverride='auto';
+  perfSelect.value=perfOverride;
+}
 
 function setStatus(msg){document.getElementById('tp-status').textContent=msg;}
 
