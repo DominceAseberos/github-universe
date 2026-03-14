@@ -40,6 +40,37 @@ canvas{position:fixed;inset:0;display:block;width:100%;height:100%}
   position:absolute;top:22px;right:64px;
   width:250px;pointer-events:all;
 }
+/* ── SEARCH DROPDOWN ── */
+#search-dropdown{
+  position:absolute;top:calc(100% + 5px);left:0;right:0;
+  background:rgba(4,6,22,.95);
+  border:1px solid rgba(255,255,255,.1);
+  border-radius:10px;overflow:hidden;
+  backdrop-filter:blur(18px);
+  display:none;z-index:200;
+  max-height:300px;overflow-y:auto;
+  box-shadow:0 8px 32px rgba(0,0,10,.6);
+}
+#search-dropdown::-webkit-scrollbar{width:4px}
+#search-dropdown::-webkit-scrollbar-thumb{background:rgba(255,255,255,.1);border-radius:2px}
+.sd-item{
+  padding:7px 12px;cursor:pointer;
+  display:flex;align-items:center;gap:8px;
+  font-size:10px;color:rgba(255,255,255,.72);
+  transition:background .12s;pointer-events:all;
+  border-bottom:1px solid rgba(255,255,255,.04);
+}
+.sd-item:last-child{border-bottom:none}
+.sd-item:hover,.sd-item.active{background:rgba(80,130,255,.18);color:#fff}
+.sd-tag{
+  font-size:8px;letter-spacing:.8px;text-transform:uppercase;
+  padding:2px 6px;border-radius:4px;flex-shrink:0;
+}
+.sd-tag.country{background:rgba(100,170,255,.18);color:#90c0ff}
+.sd-tag.city{background:rgba(80,220,140,.15);color:#70d898}
+.sd-tag.user{background:rgba(255,160,80,.15);color:#ffaa55}
+.sd-name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sd-sub{font-size:8px;color:rgba(255,255,255,.28);flex-shrink:0;margin-left:4px}
 #search-input{
   width:100%;height:34px;
   border-radius:18px;
@@ -195,7 +226,8 @@ canvas{position:fixed;inset:0;display:block;width:100%;height:100%}
   </div>
 
   <div id="search-wrap">
-    <input id="search-input" type="text" placeholder="Search name, country, city" aria-label="Search">
+    <input id="search-input" type="text" placeholder="Search country…" aria-label="Search">
+    <div id="search-dropdown"></div>
   </div>
 
   <div id="ctrl-bar">
@@ -975,6 +1007,9 @@ function updateLevelDots(){
   document.querySelectorAll('.lv-dot').forEach((d,i)=>{
     d.classList.toggle('active',i===level);
   });
+  const ph=['Search country…','Search city…','Search user…','Search repo…'];
+  const si=document.getElementById('search-input');
+  if(si) si.placeholder=ph[level]??ph[0];
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -1626,17 +1661,120 @@ document.getElementById('btn-token').onclick=()=>{
 };
 
 const searchInput=document.getElementById('search-input');
+const sdEl=document.getElementById('search-dropdown');
+let sdCurrentItems=[], sdActiveIdx=-1;
+
+function buildSearchSuggestions(q){
+  if(!q||q.length<1) return [];
+  const norm=normText(q);
+  const results=[];
+  // Countries — always available at any level
+  for(const node of galaxyNodes){
+    if(normText(node.country).includes(norm)||normText(node.code).includes(norm)){
+      results.push({type:'country',label:node.flag+' '+node.country,sub:node.code,node});
+      if(results.length>=12) break;
+    }
+  }
+  // Cities — if inside a country (level ≥ 1)
+  if(level>=1 && planetNodes.length){
+    for(const p of planetNodes){
+      if(normText(p.city).includes(norm)||normText(p.code).includes(norm)){
+        results.push({type:'city',label:p.city,sub:p.code,node:p});
+        if(results.length>=12) break;
+      }
+    }
+  }
+  // Users — if inside a city (level ≥ 2)
+  if(level>=2 && userNodes.length){
+    for(const u of userNodes){
+      if(normText(u.login).includes(norm)||(u.location&&normText(u.location).includes(norm))){
+        results.push({type:'user',label:u.login,sub:u.location||'',node:u});
+        if(results.length>=12) break;
+      }
+    }
+  }
+  return results.slice(0,10);
+}
+
+function renderDropdown(items){
+  if(!items.length){sdEl.style.display='none';return;}
+  sdEl.innerHTML=items.map((it,i)=>`
+    <div class="sd-item${i===sdActiveIdx?' active':''}" data-idx="${i}">
+      <span class="sd-tag ${it.type}">${it.type}</span>
+      <span class="sd-name">${it.label}</span>
+      ${it.sub?`<span class="sd-sub">${it.sub}</span>`:''}
+    </div>`).join('');
+  sdEl.style.display='block';
+  sdEl.querySelectorAll('.sd-item').forEach(el=>{
+    el.addEventListener('mousedown',e=>{
+      e.preventDefault();
+      navigateToSuggestion(items[+el.dataset.idx]);
+    });
+  });
+}
+
+function navigateToSuggestion(it){
+  searchInput.value='';
+  searchQuery='';
+  sdEl.style.display='none';
+  sdActiveIdx=-1;
+  sdCurrentItems=[];
+  if(it.type==='country'){
+    if(level!==0){
+      // reset to galaxy, then drill in
+      level=0;activeCountry=null;activePlanet=null;activeUser=null;userNodes=[];
+      buildGalaxy();tCamX=0;tCamY=0;tCamZ=1;
+      updateBreadcrumb();updateLevelDots();
+      document.getElementById('btn-back').style.display='none';
+      setTimeout(()=>drillIntoCountry(it.node),320);
+    } else {
+      drillIntoCountry(it.node);
+    }
+  } else if(it.type==='city'){
+    drillIntoCity(it.node);
+  } else if(it.type==='user'){
+    drillIntoUser(it.node);
+  }
+}
+
 searchInput.addEventListener('input',()=>{
   searchQuery=normText(searchInput.value.trim());
   hoveredNode=null;
+  sdActiveIdx=-1;
+  sdCurrentItems=buildSearchSuggestions(searchQuery);
+  renderDropdown(sdCurrentItems);
 });
 searchInput.addEventListener('keydown',e=>{
   if(e.key==='Escape'){
-    searchInput.value='';
-    searchQuery='';
-    hoveredNode=null;
-    searchInput.blur();
+    searchInput.value='';searchQuery='';hoveredNode=null;sdActiveIdx=-1;
+    sdCurrentItems=[];sdEl.style.display='none';searchInput.blur();
+    return;
   }
+  if(!sdCurrentItems.length) return;
+  if(e.key==='ArrowDown'){
+    e.preventDefault();
+    sdActiveIdx=Math.min(sdActiveIdx+1,sdCurrentItems.length-1);
+    renderDropdown(sdCurrentItems);
+    // scroll active item into view
+    const active=sdEl.querySelector('.sd-item.active');
+    if(active) active.scrollIntoView({block:'nearest'});
+  } else if(e.key==='ArrowUp'){
+    e.preventDefault();
+    sdActiveIdx=Math.max(sdActiveIdx-1,-1);
+    renderDropdown(sdCurrentItems);
+    const active=sdEl.querySelector('.sd-item.active');
+    if(active) active.scrollIntoView({block:'nearest'});
+  } else if(e.key==='Enter'){
+    e.preventDefault();
+    if(sdActiveIdx>=0) navigateToSuggestion(sdCurrentItems[sdActiveIdx]);
+    else if(sdCurrentItems.length===1) navigateToSuggestion(sdCurrentItems[0]);
+  }
+});
+searchInput.addEventListener('blur',()=>{
+  setTimeout(()=>{sdEl.style.display='none';sdActiveIdx=-1;},160);
+});
+searchInput.addEventListener('focus',()=>{
+  if(sdCurrentItems.length) renderDropdown(sdCurrentItems);
 });
 document.addEventListener('keydown',e=>{
   const tag=document.activeElement?.tagName;
