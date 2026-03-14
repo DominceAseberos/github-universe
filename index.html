@@ -1820,7 +1820,7 @@ const staticCache = { index:null, countries:{} };
 async function loadIndex(){
   if(staticCache.index) return staticCache.index;
   try{
-    const res = await fetch('data/index.json', {cache:'no-store'});
+    const res = await fetch('data/index.json');
     if(!res.ok) return null;
     const doc = await res.json();
     staticCache.index = doc;
@@ -1833,7 +1833,7 @@ async function loadIndex(){
 async function loadCountryFile(code){
   if(staticCache.countries[code]) return staticCache.countries[code];
   try{
-    const res = await fetch(`data/countries/${code}.json`, {cache:'no-store'});
+    const res = await fetch(`data/countries/${code}.json`);
     if(!res.ok) return null;
     const doc = await res.json();
     staticCache.countries[code] = doc;
