@@ -395,6 +395,7 @@ let bgStars      = [];
 let particles    = [];
 let hoveredNode  = null;
 let searchQuery  = '';
+let indexSummary = null;
 
 // SVG universe backdrop presets (change `universePresetKey` to swap style)
 const UNIVERSE_PRESETS = {
@@ -953,21 +954,47 @@ function updateLevelDots(){
 // OVERVIEW PANEL
 // ═══════════════════════════════════════════════════════════════════════════════
 function updateOverview(){
-  const loaded=Object.values(countryData);
-  const totalCountries=loaded.length||ACTIVE_COUNTRIES.length;
-  const totalRepos=loaded.reduce((s,d)=>s+(d.repoCount||0),0);
-  const totalStars=loaded.reduce((s,d)=>s+(d.totalStars||0),0);
-  const totalDevs=loaded.reduce((s,d)=>s+(d.devs||0),0);
+  const visCountries=ACTIVE_COUNTRIES.filter(c=>!filterContinent||c[2]===filterContinent);
 
-  // top lang globally
-  const allLangs={};
-  loaded.forEach(d=>Object.entries(d.langs||{}).forEach(([l,c])=>allLangs[l]=(allLangs[l]||0)+c));
-  const topLang=Object.entries(allLangs).sort((a,b)=>b[1]-a[1])[0]?.[0]||'—';
+  // Prefer real index summary data when available.
+  let totalRepos=0, totalStars=0, totalDevs=0, topLang='—';
+  let sampledCount=0;
+
+  if(indexSummary && Array.isArray(indexSummary.countries)){
+    const codeToCont={};
+    COUNTRIES.forEach(c=>{ codeToCont[c[1]] = c[2]; });
+    const countries=(indexSummary.countries||[]).filter(c=>!filterContinent || codeToCont[c.code]===filterContinent);
+    sampledCount=countries.length;
+    totalRepos=countries.reduce((s,c)=>s+(c.repos||0),0);
+    totalStars=countries.reduce((s,c)=>s+(c.stars||0),0);
+    totalDevs=countries.reduce((s,c)=>s+(c.users||0),0);
+
+    if(!filterContinent && indexSummary.topLang){
+      topLang=indexSummary.topLang;
+    }else{
+      const langByCountry={};
+      countries.forEach(c=>{
+        const lang=c.topLang||'Unknown';
+        langByCountry[lang]=(langByCountry[lang]||0)+1;
+      });
+      topLang=Object.entries(langByCountry).sort((a,b)=>b[1]-a[1])[0]?.[0]||'—';
+    }
+  }else{
+    const loaded=Object.values(countryData);
+    sampledCount=loaded.length;
+    totalRepos=loaded.reduce((s,d)=>s+(d.repoCount||0),0);
+    totalStars=loaded.reduce((s,d)=>s+(d.totalStars||0),0);
+    totalDevs=loaded.reduce((s,d)=>s+(d.devs||0),0);
+    const allLangs={};
+    loaded.forEach(d=>Object.entries(d.langs||{}).forEach(([l,c])=>allLangs[l]=(allLangs[l]||0)+c));
+    topLang=Object.entries(allLangs).sort((a,b)=>b[1]-a[1])[0]?.[0]||'—';
+  }
+
   const topLangColor=LANG_COLORS[topLang]||'#fff';
 
-  document.getElementById('ov-countries').textContent=ACTIVE_COUNTRIES.filter(c=>!filterContinent||c[2]===filterContinent).length;
+  document.getElementById('ov-countries').textContent=visCountries.length;
   document.getElementById('ov-repos').textContent=fmt(totalRepos);
-  document.getElementById('ov-repos-sub').textContent=loaded.length+' countries sampled';
+  document.getElementById('ov-repos-sub').textContent=sampledCount+' countries sampled';
   document.getElementById('ov-stars').textContent=fmt(totalStars);
   document.getElementById('ov-devs').textContent=fmt(totalDevs);
   document.getElementById('ov-top-lang').textContent=topLang;
@@ -1050,38 +1077,91 @@ function buildCountrySpriteSvg(key, hex){
   const c3=`rgb(${clamp255(rgb.r*rLow)},${clamp255(rgb.g*gLow)},${clamp255(rgb.b*bLow)})`;
   const rotation=Math.round(-55+seededUnit(seed,10)*110);
   const blur=(2+seededUnit(seed,11)*10).toFixed(1);
+  const blurSpread=.65+seededUnit(seed,13)*1.25;
   const thicknessScale=.65+seededUnit(seed,12)*1.25;
   const ry1=Math.round(56*thicknessScale);
   const ry2=Math.round(44*thicknessScale);
   const ry3=Math.round(32*thicknessScale);
   const coreRy=Math.round(21*thicknessScale);
+  const filterInset=Math.round(50*blurSpread);
+  const filterSize=Math.round(200+filterInset*2);
+  const armOpacity=(.45+seededUnit(seed,14)*.4).toFixed(2);
+  const g1cx=(35+seededUnit(seed,31)*30).toFixed(1)+'%';
+  const g1cy=(38+seededUnit(seed,32)*26).toFixed(1)+'%';
+  const g1fx=(28+seededUnit(seed,33)*38).toFixed(1)+'%';
+  const g1fy=(30+seededUnit(seed,34)*36).toFixed(1)+'%';
+  const g1r=(58+seededUnit(seed,35)*24).toFixed(1)+'%';
+
+  const g2cx=(42+seededUnit(seed,36)*20).toFixed(1)+'%';
+  const g2cy=(40+seededUnit(seed,37)*20).toFixed(1)+'%';
+  const g2fx=(38+seededUnit(seed,38)*24).toFixed(1)+'%';
+  const g2fy=(34+seededUnit(seed,39)*24).toFixed(1)+'%';
+  const g2r=(44+seededUnit(seed,40)*20).toFixed(1)+'%';
+
+  const g3cx=(46+seededUnit(seed,41)*18).toFixed(1)+'%';
+  const g3cy=(44+seededUnit(seed,42)*18).toFixed(1)+'%';
+  const g3fx=(40+seededUnit(seed,43)*24).toFixed(1)+'%';
+  const g3fy=(40+seededUnit(seed,44)*20).toFixed(1)+'%';
+  const g3r=(50+seededUnit(seed,45)*20).toFixed(1)+'%';
+
+  const g4cx=(48+seededUnit(seed,46)*16).toFixed(1)+'%';
+  const g4cy=(45+seededUnit(seed,47)*16).toFixed(1)+'%';
+  const g4fx=(44+seededUnit(seed,48)*18).toFixed(1)+'%';
+  const g4fy=(40+seededUnit(seed,49)*18).toFixed(1)+'%';
+  const g4r=(36+seededUnit(seed,50)*16).toFixed(1)+'%';
+
+  const g5cx=(50+seededUnit(seed,51)*16).toFixed(1)+'%';
+  const g5cy=(48+seededUnit(seed,52)*14).toFixed(1)+'%';
+  const g5fx=(46+seededUnit(seed,53)*16).toFixed(1)+'%';
+  const g5fy=(44+seededUnit(seed,54)*14).toFixed(1)+'%';
+  const g5r=(68+seededUnit(seed,55)*26).toFixed(1)+'%';
   return `<svg viewBox="0 0 500 500" xmlns="http://www.w3.org/2000/svg">
   <defs>
-    <filter id="b" x="-50%" y="-50%" width="200%" height="200%">
+    <filter id="b" x="-${filterInset}%" y="-${filterInset}%" width="${filterSize}%" height="${filterSize}%">
       <feGaussianBlur in="SourceGraphic" stdDeviation="${blur}" />
     </filter>
-    <radialGradient id="g1">
+    <radialGradient id="g1" cx="${g1cx}" cy="${g1cy}" fx="${g1fx}" fy="${g1fy}" r="${g1r}">
       <stop offset="0%" stop-color="${c1}" />
       <stop offset="30%" stop-color="${c2}" />
       <stop offset="100%" stop-color="${c3}" stop-opacity="0" />
     </radialGradient>
-    <radialGradient id="g2">
+    <radialGradient id="g2" cx="${g2cx}" cy="${g2cy}" fx="${g2fx}" fy="${g2fy}" r="${g2r}">
       <stop offset="0%" stop-color="#ffffff" />
       <stop offset="45%" stop-color="${c1}" />
       <stop offset="100%" stop-color="${c2}" stop-opacity="0" />
     </radialGradient>
+    <radialGradient id="g3" cx="${g3cx}" cy="${g3cy}" fx="${g3fx}" fy="${g3fy}" r="${g3r}">
+      <stop offset="0%" stop-color="${c2}" stop-opacity="0.95" />
+      <stop offset="55%" stop-color="${c3}" stop-opacity="0.55" />
+      <stop offset="100%" stop-color="${c3}" stop-opacity="0" />
+    </radialGradient>
+    <radialGradient id="g4" cx="${g4cx}" cy="${g4cy}" fx="${g4fx}" fy="${g4fy}" r="${g4r}">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.85" />
+      <stop offset="35%" stop-color="${c1}" stop-opacity="0.5" />
+      <stop offset="100%" stop-color="${c2}" stop-opacity="0" />
+    </radialGradient>
+    <radialGradient id="g5" cx="${g5cx}" cy="${g5cy}" fx="${g5fx}" fy="${g5fy}" r="${g5r}">
+      <stop offset="0%" stop-color="${c1}" stop-opacity="0.65" />
+      <stop offset="70%" stop-color="${c2}" stop-opacity="0.2" />
+      <stop offset="100%" stop-color="${c3}" stop-opacity="0" />
+    </radialGradient>
   </defs>
   <g transform="translate(250 250) rotate(${rotation})">
-    <g filter="url(#b)" opacity="0.7">
+    <ellipse rx="245" ry="${Math.round(70*thicknessScale)}" fill="url(#g5)" filter="url(#b)" opacity="0.35" />
+    <g filter="url(#b)" opacity="${armOpacity}">
       <path d="M0,0 C130,0 260,-40 220,-90 C130,-45 0,0 0,0" fill="url(#g1)" />
       <path d="M0,0 C-130,0 -260,40 -220,90 C-130,45 0,0 0,0" fill="url(#g1)" />
+      <path d="M0,0 C110,0 220,-30 190,-68 C110,-34 0,0 0,0" fill="url(#g3)" opacity="0.85" />
+      <path d="M0,0 C-110,0 -220,30 -190,68 C-110,34 0,0 0,0" fill="url(#g3)" opacity="0.85" />
     </g>
     <g filter="url(#b)" fill="none">
       <ellipse rx="205" ry="${ry1}" stroke="${c2}" stroke-width="3" opacity="0.28" />
       <ellipse rx="170" ry="${ry2}" stroke="${c1}" stroke-width="4" opacity="0.36" transform="rotate(-2)" />
       <ellipse rx="130" ry="${ry3}" stroke="#ffffff" stroke-width="2" opacity="0.55" />
+      <ellipse rx="108" ry="${Math.round(26*thicknessScale)}" stroke="url(#g4)" stroke-width="6" opacity="0.45" />
     </g>
     <ellipse rx="86" ry="${coreRy}" fill="url(#g2)" filter="url(#b)" />
+    <ellipse rx="62" ry="${Math.max(9,Math.round(coreRy*.65))}" fill="url(#g4)" filter="url(#b)" opacity="0.8" />
     <circle r="8" fill="#fff" />
   </g>
 </svg>`;
@@ -1099,17 +1179,31 @@ function getCountrySprite(key, hex){
   return entry;
 }
 
-function drawCountrySprite(x,y,r,key,hex,isHov,fade,rgb){
+function drawCountrySprite(x,y,r,key,hex,isHov,fade,rgb,quality='high'){
+  const seed=hashString(key);
+  const spread=.75+seededUnit(seed,21)*1.2;
+  const spriteScale=.9+seededUnit(seed,22)*.55;
+
+  if(quality==='low' && !isHov){
+    drawCore(x,y,r*.92,rgb,.78*fade);
+    return;
+  }
+
   const entry=getCountrySprite(key,hex);
-  const size=r*(isHov?9.5:8.3);
+  const baseScale = isHov ? 9.5 : (quality==='mid' ? 6.9 : 8.3);
+  const size=r*baseScale*spriteScale;
   if(entry.ready&&entry.img){
     ctx.save();
     ctx.globalAlpha=(isHov?.9:.78)*fade;
     ctx.drawImage(entry.img,x-size/2,y-size/2,size,size);
     ctx.restore();
-    drawGlow(x,y,r*(isHov?3.2:2.5),rgb,(isHov?.18:.09)*fade);
+    if(quality!=='low'){
+      const glowScale = quality==='mid' ? .82 : 1;
+      drawGlow(x,y,r*(isHov?3.2:2.5)*spread*glowScale,rgb,(isHov?.18:.09)*fade);
+    }
   }else{
-    drawGlow(x,y,r*(isHov?4.5:3),rgb,(isHov?.2:.1)*fade);
+    const glowScale = quality==='mid' ? .82 : 1;
+    drawGlow(x,y,r*(isHov?4.5:3)*spread*glowScale,rgb,(isHov?.2:.1)*fade);
     drawCore(x,y,r,rgb,.9*fade);
   }
 }
@@ -1117,6 +1211,14 @@ function drawCountrySprite(x,y,r,key,hex,isHov,fade,rgb){
 function drawFrame(){
   if(!paused) time+=.016;
   camX=lerp(camX,tCamX,.07); camY=lerp(camY,tCamY,.07); camZ=lerp(camZ,tCamZ,.07);
+
+  // Adaptive perf profile for dense level-0 views.
+  let perfMode='high';
+  if(level===0){
+    const visibleCountries=galaxyNodes.reduce((n,node)=>n+(countryMatchesSearch(node)?1:0),0);
+    if(visibleCountries>130) perfMode='low';
+    else if(visibleCountries>80) perfMode='mid';
+  }
 
   ctx.clearRect(0,0,W,H);
   ctx.fillStyle='#02030c';
@@ -1128,14 +1230,16 @@ function drawFrame(){
   ctx.fillStyle=nb;ctx.fillRect(0,0,W,H);
 
   // bg stars
-  bgStars.forEach(s=>{
+  const starStep=(perfMode==='low'?2:1);
+  for(let i=0;i<bgStars.length;i+=starStep){
+    const s=bgStars[i];
     const a=s.base+.07*Math.sin(time*s.sp*3+s.ph);
     ctx.beginPath();ctx.arc(s.x,s.y,s.r,0,Math.PI*2);
     ctx.fillStyle=`rgba(255,255,255,${Math.max(0,a)})`;ctx.fill();
-  });
+  }
 
   // shooting star
-  if(!paused&&Math.random()<.003){
+  if(!paused&&Math.random()<(perfMode==='low'?.0012:.003)){
     particles.push({x:rnd(0,W),y:rnd(0,H*.4),vx:rnd(3,8),vy:rnd(1,3),life:1,len:rnd(60,130)});
   }
   particles=particles.filter(p=>{
@@ -1163,14 +1267,14 @@ function drawFrame(){
       if(isHov)hoveredNode=node;
 
       // galaxy dust ring
-      if(node.weight>30){
+      if(node.weight>30 && perfMode!=='low'){
         ctx.beginPath();ctx.arc(node.x,node.y,r*3.5,0,Math.PI*2);
         ctx.strokeStyle=`rgba(${node.rgb.r},${node.rgb.g},${node.rgb.b},${.06*fade})`;
         ctx.lineWidth=2+node.weight*.03;ctx.setLineDash([2,8+Math.random()*4]);ctx.stroke();
         ctx.setLineDash([]);
       }
 
-      drawCountrySprite(node.x,node.y,r,node.code,node.col,isHov,fade,node.rgb);
+      drawCountrySprite(node.x,node.y,r,node.code,node.col,isHov,fade,node.rgb,perfMode);
 
       if(isHov){
         ctx.beginPath();ctx.arc(node.x,node.y,r+6,0,Math.PI*2);
@@ -1178,7 +1282,8 @@ function drawFrame(){
       }
 
       // flag + name for larger nodes
-      if(camZ>.4&&(r*camZ>6||isHov)){
+      const labelMin=(perfMode==='low'?11:(perfMode==='mid'?8:6));
+      if(camZ>.4&&(r*camZ>labelMin||isHov)){
         const fs=Math.max(9,Math.min(12,r*.55));
         ctx.font=(isHov?'600 ':'500 ')+fs+'px monospace';
         ctx.textAlign='center';
@@ -1554,6 +1659,7 @@ async function restorePersistedData(){
   setStatus('loading universe index…');
   const index = await loadIndex();
   if(!index){ setStatus('no data — run scraper.py + build.py first'); return; }
+  indexSummary = index;
 
   // Narrow the galaxy to only countries that have real scraped data
   const indexCodes = new Set((index.countries||[]).map(c=>c.code));
