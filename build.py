@@ -24,6 +24,7 @@ import sys
 from collections import defaultdict
 from pathlib import Path
 from datetime import datetime, timezone
+from scraper import extract_city as _extract_city
 
 logging.basicConfig(
     level=logging.INFO,
@@ -137,7 +138,9 @@ def build_country(code: str, top_cities: int, top_repos: int, min_stars: int) ->
     global_repos = 0
 
     for record in records:
-        city = record.get("city")
+        # Always re-derive city from location so region-fallback logic applies
+        # (the saved "city" field may pre-date the region mapping).
+        city = _extract_city(record.get("location"), country_code=code) or record.get("city")
         repos = []
         for repo in record.get("repos", []):
             if repo.get("stars", 0) < min_stars:

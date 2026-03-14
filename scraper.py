@@ -11,6 +11,8 @@ Usage:
     python scraper.py --token ghp_xxx --resume          # continue interrupted run
     python scraper.py --token ghp_xxx --workers 3       # parallel countries
     python scraper.py --token ghp_xxx --only-with-repos # keep users with repos only
+    python scraper.py --token ghp_xxx --skip-seen       # skip users already in data/raw/{CODE}.jsonl
+    python scraper.py --token ghp_xxx --fresh           # wipe existing data and start from scratch
 
 Output:
     data/raw/{COUNTRY_CODE}.jsonl   — one JSON object per line (user + repos)
@@ -242,6 +244,26 @@ def save_meta(meta: dict):
     META_FILE.write_text(json.dumps(meta, indent=2))
 
 
+def load_seen_logins(code: str) -> set[str]:
+    out_file = RAW_DIR / f"{code}.jsonl"
+    if not out_file.exists():
+        return set()
+    seen_logins: set[str] = set()
+    with open(out_file, "r", encoding="utf-8") as fh:
+        for line in fh:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                record = json.loads(line)
+            except Exception:
+                continue
+            login = record.get("login")
+            if isinstance(login, str) and login:
+                seen_logins.add(login.lower())
+    return seen_logins
+
+
 # ── City extraction ───────────────────────────────────────────────────────────
 # Common noise words to strip from location strings
 NOISE = {
@@ -271,6 +293,113 @@ def _contains_country_reference(value: str, country_names: set[str], country_cod
             return True
     return False
 
+# ── Region → city fallbacks (last resort when extract_city() returns None) ────
+# Maps lowercase keywords found anywhere in the location string → canonical city.
+REGION_CITY_FALLBACK: dict[str, list[tuple[list[str], str]]] = {
+    "PH": [
+        (["metro manila", "ncr", "national capital region"], "Manila"),
+        (["quezon city"], "Quezon City"),
+        (["makati", "taguig", "pasig", "mandaluyong", "marikina", "pasay",
+          "paranaque", "parañaque", "caloocan", "navotas", "muntinlupa",
+          "las piñas", "las pinas", "valenzuela", "pateros", "san juan"],
+         "Manila"),
+        (["luzon"], "Manila"),
+        (["mindanao"], "Davao"),
+        (["visayas", "visayan"], "Cebu"),
+        (["iloilo"], "Iloilo City"),
+        (["bacolod", "negros"], "Bacolod"),
+        (["cagayan de oro", "cdo"], "Cagayan de Oro"),
+        (["zamboanga"], "Zamboanga"),
+        (["general santos", "gensan"], "General Santos"),
+        (["ilocos"], "Laoag"),
+        (["bicol", "bicolandia", "legazpi"], "Legazpi"),
+        (["palawan", "puerto princesa"], "Puerto Princesa"),
+        (["bohol", "tagbilaran"], "Tagbilaran"),
+        (["leyte", "tacloban"], "Tacloban"),
+        (["pampanga", "angeles", "clark"], "Angeles"),
+        (["bulacan", "malolos"], "Malolos"),
+        (["cavite", "bacoor", "dasmariñas", "dasmarinas"], "Dasmarinas"),
+        (["laguna", "calamba", "los baños", "los banos"], "Calamba"),
+        (["batangas"], "Batangas"),
+        (["rizal", "antipolo"], "Antipolo"),
+        (["iligan"], "Iligan"),
+        (["cotabato"], "Cotabato"),
+    ],
+    "DE": [
+        (["munich", "münchen", "muenchen", "bavaria", "bayern", "augsburg",
+          "nuremberg", "nürnberg", "nuernberg", "regensburg", "ingolstadt",
+          "würzburg", "wuerzburg", "erlangen", "fürth", "fuerth"], "Munich"),
+        (["cologne", "köln", "koeln", "north rhine", "nordrhein",
+          "westphalia", "westfalen", "nrw", "düsseldorf", "dusseldorf",
+          "dortmund", "essen", "duisburg", "bochum", "bonn", "münster",
+          "muenster", "wuppertal", "bielefeld", "aachen", "krefeld",
+          "mönchengladbach", "moenchengladbach", "oberhausen", "hagen"],
+         "Cologne"),
+        (["frankfurt", "hesse", "hessen", "wiesbaden", "darmstadt",
+          "kassel", "offenbach", "gießen", "giessen", "marburg"],
+         "Frankfurt"),
+        (["stuttgart", "bad.-württ", "badenwürtt", "bw",
+          "württemberg", "wuerttemberg",
+          "karlsruhe", "carlsruhe", "mannheim", "freiburg", "heidelberg",
+          "ulm", "heilbronn", "pforzheim", "reutlingen", "tübingen",
+          "tuebingen", "konstanz", "sindelfingen", "ravensburg"],
+         "Stuttgart"),
+        (["saxony", "sachsen", "dresden", "leipzig", "chemnitz", "zwickau",
+          "görlitz", "goerlitz", "bautzen", "plauen"], "Dresden"),
+        (["lower saxony", "niedersachsen", "hannover", "hanover",
+          "braunschweig", "wolfsburg", "göttingen", "goettingen",
+          "osnabrück", "osnabrueck", "oldenburg", "hildesheim"],
+         "Hannover"),
+        (["thuringia", "thüringen", "thueringen", "erfurt", "jena",
+          "weimar", "gera", "gotha", "eisenach"], "Erfurt"),
+        (["brandenberg", "brandenburg", "potsdam", "cottbus"],
+         "Potsdam"),
+        (["mecklenburg", "rostock", "schwerin", "greifswald", "stralsund",
+          "neubrandenburg"], "Rostock"),
+        (["rhineland-palatinate", "rheinland-pfalz", "rheinland",
+          "mainz", "koblenz", "trier", "kaiserslautern", "ludwigshafen"],
+         "Mainz"),
+        (["saarland", "saarbrücken", "saarbruecken", "saarlouis"],
+         "Saarbrücken"),
+        (["schleswig-holstein", "schleswig", "holstein", "kiel",
+          "lübeck", "luebeck", "flensburg", "neumünster", "neumuenster"],
+         "Kiel"),
+        (["saxony-anhalt", "sachsen-anhalt", "magdeburg", "halle",
+          "dessau", "merseburg"], "Magdeburg"),
+        (["bremen", "bremerhaven"], "Bremen"),
+    ],
+    "SG": [
+        (["singapore", "jurong", "tampines", "woodlands", "ang mo kio",
+          "bedok", "toa payoh", "bishan", "bukit timah", "bukit batok",
+          "choa chu kang", "clementi", "geylang", "hougang", "pasir ris",
+          "punggol", "queenstown", "sembawang", "sengkang", "serangoon",
+          "yishun", "novena", "orchard", "marina", "kallang",
+          "marine parade", "changi", "tengah", "central"], "Singapore"),
+    ],
+}
+
+
+def apply_region_fallback(location: str, country_code: str | None) -> str | None:
+    """Return a canonical city if `location` contains a known region keyword."""
+    if not country_code:
+        return None
+    mapping = REGION_CITY_FALLBACK.get(country_code.upper())
+    if not mapping:
+        return None
+    loc_lower = location.lower()
+    for keywords, city in mapping:
+        for kw in keywords:
+            if kw in loc_lower:
+                return city
+    return None
+
+
+def _normalize_city(city: str, country_code: str | None) -> str:
+    """If the extracted city is itself a region name, map it to its capital."""
+    mapped = apply_region_fallback(city, country_code)
+    return mapped if mapped else city
+
+
 def sanitize_location(location: str | None) -> str | None:
     if not location:
         return None
@@ -283,12 +412,14 @@ def sanitize_location(location: str | None) -> str | None:
     cleaned = re.sub(r"\s+", " ", cleaned).strip(" ,;/|-")
     return cleaned or None
 
-def extract_city(location: str | None) -> str | None:
+def extract_city(location: str | None, country_code: str | None = None) -> str | None:
     """
     Try to extract a city name from a free-text location string.
     e.g. "Berlin, Germany" -> "Berlin"
          "San Francisco, CA, USA" -> "San Francisco"
          "Germany" -> None  (country-only, skip)
+    Falls back to REGION_CITY_FALLBACK if country_code is given and
+    normal extraction fails (e.g. "Luzon, Philippines" -> "Manila").
     """
     if not location:
         return None
@@ -325,7 +456,7 @@ def extract_city(location: str | None) -> str | None:
             continue
         if _is_country_like(candidate, country_names, country_codes):
             continue
-        return candidate.title()
+        return _normalize_city(candidate.title(), country_code)
 
     # Fallback: handle compact forms like "Berlin Germany" or "Nuremberg DE".
     normalized = _clean_location_token(loc)
@@ -342,23 +473,35 @@ def extract_city(location: str | None) -> str | None:
             if prefix and not _is_country_like(prefix, country_names, country_codes):
                 words = prefix.lower().split()
                 if words and not all(w in NOISE for w in words):
-                    return prefix.title()
+                    return _normalize_city(prefix.title(), country_code)
 
-    for country_code in country_codes:
-        suffix = f" {country_code}"
+    for cc in country_codes:
+        suffix = f" {cc}"
         if lower.endswith(suffix):
             prefix = normalized[: -len(suffix)].strip(" ,-/")
             prefix = _clean_location_token(prefix)
             if prefix and not _is_country_like(prefix, country_names, country_codes):
                 words = prefix.lower().split()
                 if words and not all(w in NOISE for w in words):
-                    return prefix.title()
+                    return _normalize_city(prefix.title(), country_code)
+
+    # Last resort: region → city fallback for known countries
+    if location and country_code:
+        fallback = apply_region_fallback(location, country_code)
+        if fallback:
+            return fallback
 
     return None
 
 
 # ── Per-country scraper ───────────────────────────────────────────────────────
-def scrape_country(client: GitHubClient, code: str, name: str, only_with_repos: bool = False) -> dict:
+def scrape_country(
+    client: GitHubClient,
+    code: str,
+    name: str,
+    only_with_repos: bool = False,
+    skip_seen: bool = True,
+) -> dict:
     """
     Fetch up to MAX_USERS_PER_COUNTRY users from this country,
     get their repos, extract city from location.
@@ -371,10 +514,16 @@ def scrape_country(client: GitHubClient, code: str, name: str, only_with_repos: 
     total_stars = 0
     total_repos_collected = 0
     users_skipped_no_repos = 0
+    users_skipped_seen = 0
+    seen_logins = load_seen_logins(code) if skip_seen else set()
 
-    log.info(f"[{code}] Starting — {name}")
+    mode = "append+dedupe" if skip_seen else "fresh"
+    log.info(f"[{code}] Starting — {name} ({mode})")
+    if not skip_seen:
+        log.warning(f"[{code}] --fresh mode: existing data will be overwritten!")
 
-    with open(out_file, "w", encoding="utf-8") as fh:
+    open_mode = "a" if skip_seen else "w"
+    with open(out_file, open_mode, encoding="utf-8") as fh:
         for page in range(1, (MAX_USERS_PER_COUNTRY // USERS_PER_PAGE) + 1):
             result = client.get("/search/users", params={
                 "q": f"location:{name} type:user",
@@ -392,13 +541,17 @@ def scrape_country(client: GitHubClient, code: str, name: str, only_with_repos: 
 
             for user in items:
                 login = user["login"]
+                login_key = login.lower()
+                if skip_seen and login_key in seen_logins:
+                    users_skipped_seen += 1
+                    continue
 
                 # Search API items do not include profile location reliably.
                 # Fetch user profile for location/city extraction.
                 user_profile = client.get(f"/users/{login}") or {}
                 location_raw = user_profile.get("location") or user.get("location")
                 location = sanitize_location(location_raw)
-                city = extract_city(location)
+                city = extract_city(location, country_code=code)
 
                 # Get user's top repos
                 repos_raw = client.get(f"/users/{login}/repos", params={
@@ -433,7 +586,7 @@ def scrape_country(client: GitHubClient, code: str, name: str, only_with_repos: 
 
                 if only_with_repos and not repos:
                     users_skipped_no_repos += 1
-                    time.sleep(0.8)
+                    time.sleep(0.3)
                     continue
 
                 total_repos_collected += len(repos)
@@ -448,8 +601,10 @@ def scrape_country(client: GitHubClient, code: str, name: str, only_with_repos: 
                 fh.write(json.dumps(record, ensure_ascii=False) + "\n")
                 fh.flush()   # write immediately so Ctrl+C doesn't lose data
                 lines_written += 1
-                # ~1 req/s to stay well under 5000/hr core limit
-                time.sleep(0.8)
+                if skip_seen:
+                    seen_logins.add(login_key)
+                # small delay to stay well under the 5000 req/hr core limit
+                time.sleep(0.3)
 
             log.info(
                 f"[{code}] page {page}/{MAX_USERS_PER_COUNTRY//USERS_PER_PAGE} "
@@ -460,8 +615,8 @@ def scrape_country(client: GitHubClient, code: str, name: str, only_with_repos: 
             if len(items) < USERS_PER_PAGE:
                 break  # last page
 
-            # Search API allows 30 req/min — delay between pages to avoid hitting it
-            time.sleep(3)
+            # Search API allows 30 req/min — short delay between pages
+            time.sleep(1)
 
     summary = {
         "code":       code,
@@ -470,13 +625,15 @@ def scrape_country(client: GitHubClient, code: str, name: str, only_with_repos: 
         "repos":      total_repos_collected,
         "stars":      total_stars,
         "skipped_no_repos": users_skipped_no_repos,
+        "skipped_seen": users_skipped_seen,
         "top_cities": sorted(city_counts.items(), key=lambda x: -x[1])[:20],
         "top_langs":  sorted(lang_counts.items(), key=lambda x: -x[1])[:15],
         "scraped_at": str(datetime.now(timezone.utc)),
     }
     log.info(
         f"[{code}] Done — {lines_written} users, {total_repos_collected} repos, "
-        f"skipped-no-repos: {users_skipped_no_repos}, top city: {summary['top_cities'][:1]}"
+        f"skipped-no-repos: {users_skipped_no_repos}, skipped-seen: {users_skipped_seen}, "
+        f"top city: {summary['top_cities'][:1]}"
     )
     return summary
 
@@ -490,6 +647,8 @@ def main():
     parser.add_argument("--workers",  type=int, default=1, help="Parallel workers (keep ≤3 to avoid rate limits)")
     parser.add_argument("--dry-run",  action="store_true", help="Print plan without scraping")
     parser.add_argument("--only-with-repos", action="store_true", help="Only keep users with at least 1 non-fork repo")
+    parser.add_argument("--skip-seen", action="store_true", default=True, help="(default) Append mode: skip users already in data/raw/{CODE}.jsonl")
+    parser.add_argument("--fresh",     action="store_true", help="Wipe existing country data and start from scratch")
     args = parser.parse_args()
 
     RAW_DIR.mkdir(parents=True, exist_ok=True)
@@ -520,6 +679,9 @@ def main():
             print(f"  {code}  {name}")
         return
 
+    # --fresh overrides --skip-seen
+    effective_skip_seen = not args.fresh
+
     client = GitHubClient(args.token)
 
     # Verify token
@@ -532,7 +694,13 @@ def main():
     def process(code_name):
         code, name = code_name
         try:
-            summary = scrape_country(client, code, name, only_with_repos=args.only_with_repos)
+            summary = scrape_country(
+                client,
+                code,
+                name,
+                only_with_repos=args.only_with_repos,
+                skip_seen=effective_skip_seen,
+            )
             with threading.Lock():
                 progress["done"].append(code)
                 save_progress(progress)
