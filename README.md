@@ -1,147 +1,59 @@
-# GitHub Universe — Data Pipeline
+# GitHub Universe — Current Setup
 
-Scrapes public GitHub repositories by country/city and builds static JSON
-files that power the 3-level constellation visualization.
+[![Data Update Workflow](https://github.com/DominceAseberos/github-universe/actions/workflows/update.yml/badge.svg)](https://github.com/DominceAseberos/github-universe/actions/workflows/update.yml)
+![Country Coverage](https://img.shields.io/badge/Coverage-3%2F195-3b82f6)
 
-## Setup
+Interactive GitHub data universe with a static-data pipeline and 4-level drill-down visualization.
 
-### 1. Create a GitHub Personal Access Token
+## Country coverage progress
 
-1. Go to https://github.com/settings/tokens/new
-2. Select **Fine-grained token** (recommended) or Classic
-3. Scopes needed: `public_repo`, `read:user`  
-   *(no write access needed — read-only is fine)*
-4. Copy the token → add it as a repository secret named `GH_SCRAPER_TOKEN`
+Progress: `3 / 195` countries (`1.54%`)
 
-### 2. Install dependencies
+`[█░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░]`
 
-```bash
-pip install requests
-```
+## Project purpose
 
-### 3. Run the scraper
+This project maps public GitHub activity into an explorable universe:
+- Level 0: Countries (galaxy view)
+- Level 1: Cities (country view)
+- Level 2: Users (population field)
+- Level 3: Repositories (repo field)
 
-```bash
-# All 195 countries (takes 2-4 hours with a token)
-python scraper.py --token ghp_xxx
+## Current active system
 
-# Just a few countries to test
-python scraper.py --token ghp_xxx --countries US,DE,PH,SG
+### Data pipeline
+- Scraper supports query-bucket partitioning to avoid repeated top-result caps.
+- Deep scraping mode (`--deep`) increases country coverage with follower and year buckets.
+- Resume mode is supported for interrupted runs.
+- Builder compiles static outputs into:
+  - `data/index.json`
+  - `data/countries/{CODE}.json`
 
-# Resume an interrupted run
-python scraper.py --token ghp_xxx --resume
+### Visualization
+- Active-country filtering: only countries present in built data are shown.
+- Wide spread layouts are enabled across levels with dense-view de-crowding.
+- Country nodes use seeded SVG mini-universe styling (unique per country).
+- Context-aware search with dropdown navigation to matching entities.
+- Adaptive performance mode (`auto/high/mid/low`) with manual override.
+- Live FPS HUD displays frame rate + active performance mode.
 
-# Dry run — just prints the plan
-python scraper.py --token ghp_xxx --dry-run
-```
+### Current dataset snapshot
+- Active built countries in this repo: `PH`, `DE`, `SG`.
+- Overview metrics are sourced from `data/index.json`.
 
-### 4. Build the static JSON
+## Deployment state
 
-```bash
-python build.py
+- Frontend is static (no runtime backend required for visualization).
+- Vercel-compatible static deployment is configured.
+- Weekly data refresh workflow is present via GitHub Actions.
 
-# With options
-python build.py --top-cities 8 --top-repos 30 --min-stars 5
-```
+## Next planned features
 
-### 5. Serve the visualization
-
-```bash
-# Any static file server works
-python -m http.server 8080
-# then open http://localhost:8080/
-```
-
-## Output structure
-
-```
-data/
-  index.json              ← global summary (all countries, ~200KB)
-  countries/
-    US.json               ← full data for USA (cities + repos)
-    DE.json
-    PH.json
-    ...                   ← one file per country (~50-200KB each)
-```
-
-### index.json shape
-```json
-{
-  "version": 2,
-  "builtAt": "2026-03-14T...",
-  "totalCountries": 142,
-  "totalRepos": 284000,
-  "totalStars": 18400000,
-  "topLang": "JavaScript",
-  "countries": [
-    {
-      "code": "US",
-      "name": "United States",
-      "flag": "🇺🇸",
-      "continent": "NA",
-      "repos": 42000,
-      "stars": 3200000,
-      "topLang": "JavaScript",
-      "cities": ["New York", "San Francisco", "Seattle"]
-    }
-  ]
-}
-```
-
-### data/countries/US.json shape
-```json
-{
-  "code": "US",
-  "cities": [
-    {
-      "name": "San Francisco",
-      "repoCount": 420,
-      "stars": 840000,
-      "topLang": "TypeScript",
-      "repos": [
-        {
-          "full_name": "vercel/next.js",
-          "stars": 120000,
-          "language": "TypeScript",
-          "description": "...",
-          "url": "https://github.com/vercel/next.js"
-        }
-      ]
-    }
-  ]
-}
-```
-
-## GitHub Actions (auto-update weekly)
-
-The workflow in `.github/workflows/update.yml` runs every Sunday at 02:00 UTC.
-
-**Required secret:** `GH_SCRAPER_TOKEN` — add in  
-*Settings → Secrets and variables → Actions → New repository secret*
-
-**Manual trigger:** Go to *Actions → Update GitHub Universe Data → Run workflow*  
-You can specify specific countries, adjust city/repo counts, or resume a run.
-
-## Rate limits
-
-| Mode | Requests/hour | Time for all 195 countries |
-|------|--------------|---------------------------|
-| No token | 60 | ~days (not recommended) |
-| Token (Classic) | 5,000 | ~3-4 hours |
-| Token (Fine-grained) | 5,000 | ~3-4 hours |
-
-The scraper automatically sleeps when rate limits are hit and resumes.
-The `--resume` flag skips already-completed countries if the run is interrupted.
-
-## Updating the visualization
-
-Once `data/index.json` and `data/countries/*.json` exist, update the
-visualization to load from static files instead of live API:
-
-```javascript
-// In github-universe.html, replace the ghFetch calls with:
-const index = await fetch('data/index.json').then(r => r.json());
-
-// Per country (on click):
-const country = await fetch(`data/countries/${code}.json`).then(r => r.json());
-```
+- Expand country coverage (priority): scale from current `PH/DE/SG` to more countries via deep scrape + rebuild cycles.
+- Add country coverage progress tracking in overview (covered vs target countries).
+- Deterministic packed layouts per selected city/user for stable re-entry visuals.
+- Optional “labels on hover only” mode for very dense datasets.
+- Stronger label collision culling with priority-based rendering.
+- UI control for density/spread tuning in settings.
+- Shareable view-state links (selected level/node + camera/filter state).
+- Data freshness badge/details based on latest build timestamp.

@@ -1388,8 +1388,10 @@ function drawCountrySprite(x,y,r,key,hex,isHov,fade,rgb,quality='high'){
   const spread=.75+seededUnit(seed,21)*1.2;
   const spriteScale=.9+seededUnit(seed,22)*.55;
 
-  if(quality==='low' && !isHov){
-    drawCore(x,y,r*.92,rgb,.78*fade);
+  if(quality==='low'){
+    const coreScale=isHov?1.02:.92;
+    const coreAlpha=isHov?.9:.78;
+    drawCore(x,y,r*coreScale,rgb,coreAlpha*fade);
     return;
   }
 
