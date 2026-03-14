@@ -778,11 +778,12 @@ function buildPopulationField(planetNode){
   const padBottom=Math.max(84,Math.min(126,H*.14));
   const minX=padX, maxX=W-padX;
   const minY=padTop, maxY=H-padBottom;
-  const baseGap=count>900?3.2:(count>650?4.2:(count>420?5.2:7.8));
+  const baseGap=count>900?8.2:(count>650?10.2:(count>420?12.4:14.5));
+  const denseScale=count>900?.4:(count>700?.48:(count>500?.58:(count>320?.7:1)));
 
   const items=users.map((user)=>{
     const norm=(Math.max(user.repoCount||0, user.stars||0))/maxMetric;
-    const r=5+norm*20;
+    const r=Math.max(2.4,(5+norm*20)*denseScale);
     const col=nameToColor(user.login);
     return {user,norm,r,col,rgb:hexToRgb(col)};
   }).sort((a,b)=>b.r-a.r);
@@ -821,7 +822,7 @@ function buildPopulationField(planetNode){
   }
 
   items.forEach((item,i)=>{
-    const attempts=count>900?65:100;
+    const attempts=count>900?120:180;
     let node=null;
     for(let a=0;a<attempts;a++){
       const x=rnd(minX,maxX);
@@ -833,11 +834,11 @@ function buildPopulationField(planetNode){
     }
 
     if(!node){
-      const fallbackGap=baseGap*.52;
+      const fallbackGap=baseGap*.82;
       const cols=Math.max(7,Math.floor((maxX-minX)/cellSize));
       const rows=Math.max(7,Math.floor((maxY-minY)/cellSize));
       const total=cols*rows;
-      for(let a=0;a<Math.min(total,250);a++){
+      for(let a=0;a<Math.min(total,420);a++){
         const idx=(i*17+a*31)%total;
         const cx=idx%cols;
         const cy=Math.floor(idx/cols);
@@ -879,11 +880,12 @@ function buildRepoField(userNode){
   const padBottom=Math.max(86,Math.min(130,H*.14));
   const minX=padX, maxX=W-padX;
   const minY=padTop, maxY=H-padBottom;
-  const baseGap=count>320?6:(count>220?8:11);
+  const baseGap=count>320?9.2:(count>220?11.5:14);
+  const denseScale=count>360?.46:(count>260?.56:(count>180?.68:1));
 
   const items=repos.map((repo)=>{
     const norm=((repo.stars??repo.stargazers_count??0))/maxS;
-    const r=5+norm*20;
+    const r=Math.max(2.2,(5+norm*20)*denseScale);
     const col=LANG_COLORS[repo.language]||LANG_COLORS.Unknown;
     return {repo,norm,r,col,rgb:hexToRgb(col)};
   }).sort((a,b)=>b.r-a.r);
@@ -922,7 +924,7 @@ function buildRepoField(userNode){
   }
 
   items.forEach((item,i)=>{
-    const attempts=count>320?90:130;
+    const attempts=count>320?140:200;
     let node=null;
     for(let a=0;a<attempts;a++){
       const x=rnd(minX,maxX);
@@ -934,11 +936,11 @@ function buildRepoField(userNode){
     }
 
     if(!node){
-      const fallbackGap=baseGap*.55;
+      const fallbackGap=baseGap*.84;
       const cols=Math.max(6,Math.floor((maxX-minX)/cellSize));
       const rows=Math.max(6,Math.floor((maxY-minY)/cellSize));
       const total=cols*rows;
-      for(let a=0;a<Math.min(total,220);a++){
+      for(let a=0;a<Math.min(total,420);a++){
         const idx=(i*13+a*37)%total;
         const cx=idx%cols;
         const cy=Math.floor(idx/cols);
@@ -1591,6 +1593,7 @@ function drawFrame(ts=performance.now()){
       ctx.fillText(searchQuery?'no users match this search':'no users found for this city',W/2,H/2-8);
     }
 
+    const denseUsers=userNodes.length>350;
     userNodes.forEach(node=>{
       if(!userMatchesSearch(node)) return;
       const age=time-node.birthTime; if(age<0)return;
@@ -1608,8 +1611,8 @@ function drawFrame(ts=performance.now()){
         ctx.strokeStyle='rgba(255,255,255,.3)';ctx.lineWidth=.8;ctx.stroke();
       }
 
-      const showName=isHov||(camZ>.55&&r*camZ>9);
-      const showMeta=isHov||(camZ>.72&&r*camZ>11);
+      const showName=isHov||(!denseUsers&&camZ>.55&&r*camZ>9);
+      const showMeta=isHov||(!denseUsers&&camZ>.72&&r*camZ>11&&userNodes.length<260);
       if(showName){
         const fs=Math.max(8,Math.min(11,r*.55));
         ctx.font=fs+'px monospace';ctx.textAlign='center';
@@ -1636,6 +1639,7 @@ function drawFrame(ts=performance.now()){
       ctx.fillText(searchQuery?'no repos match this search':'no repos found for this user',W/2,H/2-8);
     }
 
+    const denseRepos=repoStars.length>180;
     repoStars.forEach(node=>{
       if(!repoMatchesSearch(node.repo)) return;
       const age=time-node.birthTime; if(age<0)return;
@@ -1653,13 +1657,19 @@ function drawFrame(ts=performance.now()){
         ctx.strokeStyle='rgba(255,255,255,.3)';ctx.lineWidth=.8;ctx.stroke();
       }
 
-      const fs=Math.max(8,Math.min(11,r*.55));
-      ctx.font=fs+'px monospace';ctx.textAlign='center';
-      ctx.fillStyle=`rgba(255,255,255,${(isHov?.85:.4)*fade})`;
-      ctx.fillText(node.repo.name,node.x,node.y+r+13);
-      ctx.font='8px monospace';
-      ctx.fillStyle=`rgba(255,255,255,${.22*fade})`;
-      ctx.fillText('⭐ '+(node.repo.stars??node.repo.stargazers_count??0).toLocaleString(),node.x,node.y+r+23);
+      const showName=isHov||(!denseRepos&&camZ>.58&&r*camZ>9);
+      const showMeta=isHov||(!denseRepos&&camZ>.74&&r*camZ>11&&repoStars.length<140);
+      if(showName){
+        const fs=Math.max(8,Math.min(11,r*.55));
+        ctx.font=fs+'px monospace';ctx.textAlign='center';
+        ctx.fillStyle=`rgba(255,255,255,${(isHov?.85:.35)*fade})`;
+        ctx.fillText(node.repo.name,node.x,node.y+r+13);
+      }
+      if(showMeta){
+        ctx.font='8px monospace';
+        ctx.fillStyle=`rgba(255,255,255,${.2*fade})`;
+        ctx.fillText('⭐ '+(node.repo.stars??node.repo.stargazers_count??0).toLocaleString(),node.x,node.y+r+23);
+      }
     });
   }
 
