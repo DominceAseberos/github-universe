@@ -49,6 +49,7 @@ log = logging.getLogger(__name__)
 RAW_DIR      = Path("data/raw")
 PROGRESS_FILE = RAW_DIR / "_progress.json"
 META_FILE     = RAW_DIR / "_meta.json"
+DEFAULT_SEED_DIR = Path("data/seeds")
 
 # GitHub search returns max 1000 results per query (10 pages × 100)
 MAX_USERS_PER_COUNTRY = 1000
@@ -262,6 +263,54 @@ def load_seen_logins(code: str) -> set[str]:
             if isinstance(login, str) and login:
                 seen_logins.add(login.lower())
     return seen_logins
+
+
+def load_seed_logins(code: str, seed_dir: Path) -> list[str]:
+    """
+    Load candidate user logins from seed files for a country.
+
+    Supported formats:
+      - data/seeds/{CODE}.jsonl (line object with 'login' or plain JSON string)
+      - data/seeds/{CODE}.txt   (one login per line)
+    """
+    candidates = [
+        seed_dir / f"{code}.jsonl",
+        seed_dir / f"{code}.txt",
+    ]
+    source_file = next((p for p in candidates if p.exists()), None)
+    if not source_file:
+        return []
+
+    out: list[str] = []
+    seen: set[str] = set()
+    with open(source_file, "r", encoding="utf-8") as fh:
+        for raw_line in fh:
+            line = raw_line.strip()
+            if not line:
+                continue
+
+            login = ""
+            if source_file.suffix == ".jsonl":
+                try:
+                    row = json.loads(line)
+                    if isinstance(row, dict):
+                        login = str(row.get("login", "")).strip()
+                    elif isinstance(row, str):
+                        login = row.strip()
+                except Exception:
+                    login = ""
+            else:
+                login = line
+
+            if not login:
+                continue
+            key = login.lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append(login)
+
+    return out
 
 
 # ── City extraction ───────────────────────────────────────────────────────────
@@ -527,6 +576,70 @@ def build_query_buckets(deep: bool) -> list[str]:
     return buckets
 
 
+def enrich_user_record(
+    client: GitHubClient,
+    code: str,
+    login: str,
+    only_with_repos: bool,
+    city_counts: dict[str, int],
+    lang_counts: dict[str, int],
+) -> tuple[dict | None, int, int, int]:
+    """
+    Enrich one login with profile + top repos.
+    Returns: (record_or_none, repos_collected, stars_collected, skipped_no_repos_flag)
+    """
+    user_profile = client.get(f"/users/{login}") or {}
+    if not user_profile:
+        return None, 0, 0, 0
+
+    location_raw = user_profile.get("location")
+    location = sanitize_location(location_raw)
+    city = extract_city(location, country_code=code)
+
+    repos_raw = client.get(f"/users/{login}/repos", params={
+        "sort": "stars",
+        "per_page": REPOS_PER_USER,
+        "type": "owner",
+    }) or []
+
+    repos = []
+    stars_total = 0
+    for r in repos_raw:
+        if r.get("fork"):
+            continue
+        lang = r.get("language") or "Unknown"
+        stars = r.get("stargazers_count", 0)
+        repos.append({
+            "id":          r["id"],
+            "name":        r["name"],
+            "full_name":   r["full_name"],
+            "description": (r.get("description") or "")[:120],
+            "language":    lang,
+            "stars":       stars,
+            "forks":       r.get("forks_count", 0),
+            "topics":      r.get("topics", [])[:5],
+            "url":         r.get("html_url", ""),
+            "pushed_at":   r.get("pushed_at", ""),
+        })
+        lang_counts[lang] = lang_counts.get(lang, 0) + 1
+        stars_total += stars
+
+    if city:
+        city_counts[city] = city_counts.get(city, 0) + 1
+
+    if only_with_repos and not repos:
+        return None, 0, 0, 1
+
+    record = {
+        "login":    login,
+        "location": location,
+        "city":     city,
+        "country":  code,
+        "repos":    repos,
+    }
+    return record, len(repos), stars_total, 0
+
+
 # ── Per-country scraper ───────────────────────────────────────────────────────
 def scrape_country(
     client: GitHubClient,
@@ -535,6 +648,8 @@ def scrape_country(
     only_with_repos: bool = False,
     skip_seen: bool = True,
     deep: bool = False,
+    seed_dir: Path | None = None,
+    seed_only: bool = False,
 ) -> dict:
     """
     Scrape users from `name` (country) across query buckets.
@@ -560,6 +675,61 @@ def scrape_country(
 
     open_mode = "a" if skip_seen else "w"
     with open(out_file, open_mode, encoding="utf-8") as fh:
+
+        # Optional hybrid seed pass: enrich externally sourced candidate logins.
+        seed_count = 0
+        if seed_dir is not None:
+            seed_logins = load_seed_logins(code, seed_dir)
+            if seed_logins:
+                log.info(f"[{code}] Hybrid seed pass — {len(seed_logins)} candidate logins from {seed_dir}")
+            for i, login in enumerate(seed_logins, start=1):
+                login_key = login.lower()
+                if login_key in seen_logins:
+                    users_skipped_seen += 1
+                    continue
+
+                record, repos_added, stars_added, skipped_no_repos = enrich_user_record(
+                    client,
+                    code,
+                    login,
+                    only_with_repos,
+                    city_counts,
+                    lang_counts,
+                )
+                users_skipped_no_repos += skipped_no_repos
+                if record is None:
+                    continue
+
+                fh.write(json.dumps(record, ensure_ascii=False) + "\n")
+                fh.flush()
+                lines_written += 1
+                seed_count += 1
+                total_repos_collected += repos_added
+                total_stars += stars_added
+                seen_logins.add(login_key)
+
+                if i % 100 == 0:
+                    log.info(f"[{code}] seed {i}/{len(seed_logins)} — {seed_count} imported")
+                time.sleep(0.2)
+
+            if seed_logins:
+                log.info(f"[{code}] Hybrid seed pass done — {seed_count} new users")
+
+        if seed_only:
+            summary = {
+                "code":       code,
+                "name":       name,
+                "users":      lines_written,
+                "repos":      total_repos_collected,
+                "stars":      total_stars,
+                "skipped_no_repos": users_skipped_no_repos,
+                "skipped_seen": users_skipped_seen,
+                "top_cities": sorted(city_counts.items(), key=lambda x: -x[1])[:20],
+                "top_langs":  sorted(lang_counts.items(), key=lambda x: -x[1])[:15],
+                "scraped_at": str(datetime.now(timezone.utc)),
+            }
+            log.info(f"[{code}] Seed-only done — {lines_written} new users, {total_repos_collected} repos")
+            return summary
 
         for bucket_idx, followers_filter in enumerate(buckets):
             query = f"location:{name} type:user {followers_filter}"
@@ -588,61 +758,25 @@ def scrape_country(
                         users_skipped_seen += 1
                         continue
 
-                    # Fetch full profile for reliable location data
-                    user_profile = client.get(f"/users/{login}") or {}
-                    location_raw = user_profile.get("location") or user.get("location")
-                    location = sanitize_location(location_raw)
-                    city = extract_city(location, country_code=code)
-
-                    # Get user's top repos
-                    repos_raw = client.get(f"/users/{login}/repos", params={
-                        "sort": "stars",
-                        "per_page": REPOS_PER_USER,
-                        "type": "owner",
-                    }) or []
-
-                    repos = []
-                    for r in repos_raw:
-                        if r.get("fork"):
-                            continue
-                        lang = r.get("language") or "Unknown"
-                        stars = r.get("stargazers_count", 0)
-                        repos.append({
-                            "id":          r["id"],
-                            "name":        r["name"],
-                            "full_name":   r["full_name"],
-                            "description": (r.get("description") or "")[:120],
-                            "language":    lang,
-                            "stars":       stars,
-                            "forks":       r.get("forks_count", 0),
-                            "topics":      r.get("topics", [])[:5],
-                            "url":         r.get("html_url", ""),
-                            "pushed_at":   r.get("pushed_at", ""),
-                        })
-                        lang_counts[lang] = lang_counts.get(lang, 0) + 1
-                        total_stars += stars
-
-                    if city:
-                        city_counts[city] = city_counts.get(city, 0) + 1
-
-                    if only_with_repos and not repos:
-                        users_skipped_no_repos += 1
+                    record, repos_added, stars_added, skipped_no_repos = enrich_user_record(
+                        client,
+                        code,
+                        login,
+                        only_with_repos,
+                        city_counts,
+                        lang_counts,
+                    )
+                    users_skipped_no_repos += skipped_no_repos
+                    if record is None:
                         time.sleep(0.3)
                         continue
 
-                    total_repos_collected += len(repos)
-
-                    record = {
-                        "login":    login,
-                        "location": location,
-                        "city":     city,
-                        "country":  code,
-                        "repos":    repos,
-                    }
                     fh.write(json.dumps(record, ensure_ascii=False) + "\n")
                     fh.flush()
                     lines_written += 1
                     bucket_new += 1
+                    total_repos_collected += repos_added
+                    total_stars += stars_added
                     seen_logins.add(login_key)
                     time.sleep(0.3)
 
@@ -690,6 +824,8 @@ def main():
     parser.add_argument("--skip-seen", action="store_true", default=True, help="(default) Append mode: skip users already in data/raw/{CODE}.jsonl")
     parser.add_argument("--fresh",     action="store_true", help="Wipe existing country data and start from scratch")
     parser.add_argument("--deep",      action="store_true", help="Deep mode: 5 follower × 19 year buckets = up to 95,000 users/country")
+    parser.add_argument("--seed-dir",  default="", help="Hybrid mode: directory with seed files (data/seeds/{CODE}.jsonl|.txt)")
+    parser.add_argument("--seed-only", action="store_true", help="Only process hybrid seed logins; skip GitHub search buckets")
     args = parser.parse_args()
 
     RAW_DIR.mkdir(parents=True, exist_ok=True)
@@ -718,6 +854,11 @@ def main():
     effective_skip_seen = not args.fresh
     effective_buckets = build_query_buckets(args.deep)
     log.info(f"Query plan: {'deep' if args.deep else 'normal'} mode — {len(effective_buckets)} buckets/country, up to {len(effective_buckets) * MAX_USERS_PER_COUNTRY:,} users/country")
+    seed_dir = Path(args.seed_dir) if args.seed_dir else None
+    if seed_dir:
+        log.info(f"Hybrid seed directory: {seed_dir}")
+    if args.seed_only:
+        log.info("Seed-only mode enabled — skipping search buckets")
 
     if args.dry_run:
         for code, name in target:
@@ -743,6 +884,8 @@ def main():
                 only_with_repos=args.only_with_repos,
                 skip_seen=effective_skip_seen,
                 deep=args.deep,
+                seed_dir=seed_dir,
+                seed_only=args.seed_only,
             )
             with threading.Lock():
                 progress["done"].append(code)

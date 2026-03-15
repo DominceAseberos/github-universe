@@ -1,13 +1,13 @@
 # GitHub Universe — Current Setup
 
 [![Data Update Workflow](https://github.com/DominceAseberos/github-universe/actions/workflows/update.yml/badge.svg)](https://github.com/DominceAseberos/github-universe/actions/workflows/update.yml)
-![Country Coverage](https://img.shields.io/badge/Coverage-3%2F195-3b82f6)
+![Country Coverage](https://img.shields.io/badge/Coverage-4%2F195-3b82f6)
 
 Interactive GitHub data universe with a static-data pipeline and 4-level drill-down visualization.
 
 ## Country coverage progress
 
-Progress: `3 / 195` countries (`1.54%`)
+Progress: `4 / 195` countries (`2.05%`)
 
 `[█░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░]`
 
@@ -24,6 +24,7 @@ This project maps public GitHub activity into an explorable universe:
 ### Data pipeline
 - Scraper supports query-bucket partitioning to avoid repeated top-result caps.
 - Deep scraping mode (`--deep`) increases country coverage with follower and year buckets.
+- Hybrid seed mode supports enriching externally sourced candidate logins (`--seed-dir`, optional `--seed-only`).
 - Resume mode is supported for interrupted runs.
 - Builder compiles static outputs into:
   - `data/index.json`
