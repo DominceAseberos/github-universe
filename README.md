@@ -1,13 +1,13 @@
 # GitHub Universe — Current Setup
 
 [![Data Update Workflow](https://github.com/DominceAseberos/github-universe/actions/workflows/update.yml/badge.svg)](https://github.com/DominceAseberos/github-universe/actions/workflows/update.yml)
-![Country Coverage](https://img.shields.io/badge/Coverage-4%2F195-3b82f6)
+![Country Coverage](https://img.shields.io/badge/Coverage-6%2F195-3b82f6)
 
 Interactive GitHub data universe with a static-data pipeline and 4-level drill-down visualization.
 
 ## Country coverage progress
 
-Progress: `4 / 195` countries (`2.05%`)
+Progress: `6 / 195` countries (`3.08%`)
 
 `[█░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░]`
 
