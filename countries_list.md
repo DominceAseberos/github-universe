@@ -1,0 +1,164 @@
+# Supported Countries (from scraper.py)
+
+Current configured list count: **160**
+
+- `US` — United States
+- `CN` — China
+- `IN` — India
+- `DE` — Germany
+- `GB` — United Kingdom
+- `BR` — Brazil
+- `FR` — France
+- `CA` — Canada
+- `RU` — Russia
+- `JP` — Japan
+- `KR` — South Korea
+- `AU` — Australia
+- `NL` — Netherlands
+- `PL` — Poland
+- `ES` — Spain
+- `IT` — Italy
+- `SE` — Sweden
+- `CH` — Switzerland
+- `UA` — Ukraine
+- `AR` — Argentina
+- `ID` — Indonesia
+- `TR` — Turkey
+- `PT` — Portugal
+- `PK` — Pakistan
+- `MX` — Mexico
+- `CZ` — Czech Republic
+- `BE` — Belgium
+- `DK` — Denmark
+- `SG` — Singapore
+- `FI` — Finland
+- `NO` — Norway
+- `AT` — Austria
+- `IL` — Israel
+- `TW` — Taiwan
+- `NG` — Nigeria
+- `RO` — Romania
+- `GR` — Greece
+- `HU` — Hungary
+- `EG` — Egypt
+- `VN` — Vietnam
+- `IR` — Iran
+- `CO` — Colombia
+- `ZA` — South Africa
+- `PH` — Philippines
+- `TH` — Thailand
+- `NZ` — New Zealand
+- `MY` — Malaysia
+- `CL` — Chile
+- `BD` — Bangladesh
+- `MA` — Morocco
+- `PE` — Peru
+- `BG` — Bulgaria
+- `HR` — Croatia
+- `SK` — Slovakia
+- `RS` — Serbia
+- `KE` — Kenya
+- `BY` — Belarus
+- `LT` — Lithuania
+- `EE` — Estonia
+- `DZ` — Algeria
+- `IE` — Ireland
+- `LK` — Sri Lanka
+- `TN` — Tunisia
+- `JO` — Jordan
+- `LB` — Lebanon
+- `GE` — Georgia
+- `GH` — Ghana
+- `KZ` — Kazakhstan
+- `EC` — Ecuador
+- `BO` — Bolivia
+- `VE` — Venezuela
+- `UY` — Uruguay
+- `NP` — Nepal
+- `LV` — Latvia
+- `SI` — Slovenia
+- `LU` — Luxembourg
+- `CR` — Costa Rica
+- `CM` — Cameroon
+- `ET` — Ethiopia
+- `AE` — UAE
+- `SA` — Saudi Arabia
+- `KW` — Kuwait
+- `CY` — Cyprus
+- `PA` — Panama
+- `DO` — Dominican Republic
+- `GT` — Guatemala
+- `HN` — Honduras
+- `SV` — El Salvador
+- `NI` — Nicaragua
+- `PY` — Paraguay
+- `UG` — Uganda
+- `ZM` — Zambia
+- `ZW` — Zimbabwe
+- `AM` — Armenia
+- `AZ` — Azerbaijan
+- `MD` — Moldova
+- `BA` — Bosnia
+- `MK` — North Macedonia
+- `AL` — Albania
+- `ME` — Montenegro
+- `IS` — Iceland
+- `MT` — Malta
+- `BH` — Bahrain
+- `QA` — Qatar
+- `OM` — Oman
+- `BN` — Brunei
+- `KH` — Cambodia
+- `MN` — Mongolia
+- `PS` — Palestine
+- `MM` — Myanmar
+- `LA` — Laos
+- `KG` — Kyrgyzstan
+- `TJ` — Tajikistan
+- `AF` — Afghanistan
+- `LR` — Liberia
+- `SL` — Sierra Leone
+- `GN` — Guinea
+- `ML` — Mali
+- `NE` — Niger
+- `TD` — Chad
+- `BJ` — Benin
+- `TG` — Togo
+- `BF` — Burkina Faso
+- `MR` — Mauritania
+- `BI` — Burundi
+- `BW` — Botswana
+- `NA` — Namibia
+- `GA` — Gabon
+- `MV` — Maldives
+- `FJ` — Fiji
+- `PG` — Papua New Guinea
+- `WS` — Samoa
+- `VU` — Vanuatu
+- `TO` — Tonga
+- `JM` — Jamaica
+- `TT` — Trinidad
+- `BB` — Barbados
+- `AD` — Andorra
+- `LI` — Liechtenstein
+- `MC` — Monaco
+- `SM` — San Marino
+- `XK` — Kosovo
+- `BZ` — Belize
+- `SR` — Suriname
+- `GY` — Guyana
+- `LY` — Libya
+- `SD` — Sudan
+- `SO` — Somalia
+- `YE` — Yemen
+- `IQ` — Iraq
+- `SY` — Syria
+- `CU` — Cuba
+- `HT` — Haiti
+- `RW` — Rwanda
+- `AO` — Angola
+- `MZ` — Mozambique
+- `MG` — Madagascar
+- `TZ` — Tanzania
+- `CI` — Ivory Coast
+- `SN` — Senegal

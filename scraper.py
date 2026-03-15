@@ -313,6 +313,53 @@ def load_seed_logins(code: str, seed_dir: Path) -> list[str]:
     return out
 
 
+def ensure_seed_file(code: str, seed_dir: Path) -> Path:
+    """
+    Ensure a seed file exists for the country in seed_dir.
+    Preference:
+      1) existing {CODE}.jsonl
+      2) existing {CODE}.txt
+      3) create {CODE}.jsonl (prefill from data/raw/{CODE}.jsonl if available)
+    """
+    jsonl_path = seed_dir / f"{code}.jsonl"
+    txt_path = seed_dir / f"{code}.txt"
+
+    if jsonl_path.exists():
+        return jsonl_path
+    if txt_path.exists():
+        return txt_path
+
+    seed_dir.mkdir(parents=True, exist_ok=True)
+
+    # Bootstrap from existing raw records if available.
+    raw_path = RAW_DIR / f"{code}.jsonl"
+    if raw_path.exists():
+        seen: set[str] = set()
+        with open(raw_path, "r", encoding="utf-8") as rf, open(jsonl_path, "w", encoding="utf-8") as sf:
+            for line in rf:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    record = json.loads(line)
+                except Exception:
+                    continue
+                login = str(record.get("login", "")).strip()
+                if not login:
+                    continue
+                key = login.lower()
+                if key in seen:
+                    continue
+                seen.add(key)
+                sf.write(json.dumps({"login": login}, ensure_ascii=False) + "\n")
+        log.info(f"[{code}] Auto-created seed file from raw data: {jsonl_path}")
+    else:
+        jsonl_path.touch()
+        log.info(f"[{code}] Auto-created empty seed file: {jsonl_path}")
+
+    return jsonl_path
+
+
 # ── City extraction ───────────────────────────────────────────────────────────
 # Common noise words to strip from location strings
 NOISE = {
@@ -679,6 +726,7 @@ def scrape_country(
         # Optional hybrid seed pass: enrich externally sourced candidate logins.
         seed_count = 0
         if seed_dir is not None:
+            ensure_seed_file(code, seed_dir)
             seed_logins = load_seed_logins(code, seed_dir)
             if seed_logins:
                 log.info(f"[{code}] Hybrid seed pass — {len(seed_logins)} candidate logins from {seed_dir}")
