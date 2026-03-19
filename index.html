@@ -621,32 +621,50 @@ function buildBgStars(){
 // ═══════════════════════════════════════════════════════════════════════════════
 function buildGalaxy(){
   buildBgStars();
-  const golden=Math.PI*(3-Math.sqrt(5));
-  // Use W and H independently so nodes fill the full canvas (not just a central square)
-  const maxRX=W*.46, maxRY=H*.43;
-  const minRX=W*.10, minRY=H*.10;
   const filtered=ACTIVE_COUNTRIES.filter(c=>!filterContinent||c[2]===filterContinent);
-
-  galaxyNodes=filtered.map((c,i)=>{
-    const t=filtered.length<2?0.5:i/(filtered.length-1);
-    // spread t non-linearly so nodes don't bunch in the center
-    const tSpread=Math.pow(t,.7);
-    const sRX=minRX+tSpread*(maxRX-minRX);
-    const sRY=minRY+tSpread*(maxRY-minRY);
-    const ang=i*golden;
-    const x=W/2+Math.cos(ang)*sRX;
-    const y=H/2+Math.sin(ang)*sRY;
+  const minGap=60, maxGap=120;
+  // Scatter nodes across a larger virtual canvas
+  const virtualW = W * 3;
+  const virtualH = H * 3;
+  const minX=80, maxX=virtualW-80;
+  const minY=80, maxY=virtualH-80;
+  const placed=[];
+  function canPlace(x,y,r,gap){
+    for(const p of placed){
+      const minD=p.r+r+gap;
+      const dx=x-p.x,dy=y-p.y;
+      if(dx*dx+dy*dy<minD*minD) return false;
+    }
+    return true;
+  }
+  galaxyNodes=[];
+  filtered.forEach((c,i)=>{
     const w=c[4];
-    const r=5+w*.25; // slightly larger nodes
-    const col=CONTINENT_COLORS[c[2]]||'#7a8899';
-    return {
-      country:c[0],code:c[1],continent:c[2],flag:c[3],weight:w,
-      x,y,r,col,rgb:hexToRgb(col),
-      pulsePhase:rnd(0,Math.PI*2),pulseSpeed:rnd(1.5,3),
-      birthTime:time+i*.015,norm:t,
-      loaded:false, loading:false,
-    };
+    const r=10+w*.35;
+    const seed = hashString(c[1]);
+    const sr = seededRandom(seed);
+    let node=null;
+    for(let a=0;a<180;a++){
+      const x = minX + sr() * (maxX - minX);
+      const y = minY + sr() * (maxY - minY);
+      if(canPlace(x,y,r,minGap)){
+        node={country:c[0],code:c[1],continent:c[2],flag:c[3],weight:w,x,y,r,col:CONTINENT_COLORS[c[2]]||'#7a8899',rgb:hexToRgb(CONTINENT_COLORS[c[2]]||'#7a8899'),pulsePhase:sr()*Math.PI*2,pulseSpeed:1.5+sr()*1.5,birthTime:time+i*.015,norm:i/(filtered.length-1),loaded:false,loading:false};
+        break;
+      }
+    }
+    if(!node){
+      node={country:c[0],code:c[1],continent:c[2],flag:c[3],weight:w,x:minX+sr()*(maxX-minX),y:minY+sr()*(maxY-minY),r,col:CONTINENT_COLORS[c[2]]||'#7a8899',rgb:hexToRgb(CONTINENT_COLORS[c[2]]||'#7a8899'),pulsePhase:sr()*Math.PI*2,pulseSpeed:1.5+sr()*1.5,birthTime:time+i*.015,norm:i/(filtered.length-1),loaded:false,loading:false};
+    }
+    placed.push(node);
+    galaxyNodes.push(node);
   });
+  // Set initial camera to center of visible screen
+  camX = 0;
+  camY = 0;
+  tCamX = 0;
+  tCamY = 0;
+  camZ = 1;
+  tCamZ = 1;
 }
 
 let filterContinent='';
@@ -704,39 +722,49 @@ function getCities(code){
 function buildSolarSystem(countryNode){
   buildBgStars();
   const cities=(countryData[countryNode.code]?.cities?.length ? countryData[countryNode.code].cities : getCities(countryNode.code));
-  const sunR=Math.min(W,H)*.07;
-  const maxOrbitX=W*.46;
-  const maxOrbitY=H*.43;
-
-  planetNodes=cities.map((city,i)=>{
-    const t=cities.length<2?0.5:i/(cities.length-1);
-    const tSpread=Math.pow(t,.7);
-    const orbitRX=sunR*2.5+tSpread*(maxOrbitX-sunR*2.5);
-    const orbitRY=sunR*2.5+tSpread*(maxOrbitY-sunR*2.5);
-    const phase=rnd(0,Math.PI*2);
-    const speed=.12+i*.03;
-    const key=countryNode.code+'_'+city;
-    const cityDoc=(cityData[key]||null);
-    const cityRepos=(cityDoc?.repos||[]);
-    const cityUsers=(cityDoc?.users||[]);
-    const cStars=cityDoc?.stars ?? cityRepos.reduce((s,r)=>s+(r.stars||r.stargazers_count||0),0);
-    const pR=8+Math.min(16,Math.max(cityUsers.length, cityRepos.length||0)*1.4);
-    const col=nameToColor(city);
-
-    return {
-      city,code:countryNode.code,countryNode,
-      orbitRX,orbitRY,
-      orbitR:Math.max(orbitRX,orbitRY),
-      phase,speed,
-      x:W/2+Math.cos(phase)*orbitRX,
-      y:H/2+Math.sin(phase)*orbitRY,
-      r:pR, color:col, rgb:hexToRgb(col),
-      users:cityUsers, repos:cityRepos, userCount:cityUsers.length, repoCount:cityDoc?.repoCount||cityRepos.length, stars:cStars,
-      loaded:cityData.hasOwnProperty(key),
-      loading:false,
-      pulsePhase:rnd(0,Math.PI*2),pulseSpeed:rnd(1,2.5),
-      birthTime:time+i*.1,
+  // Restore orbit placement for planets
+  const CX = W/2, CY = H/2;
+  const minOrbit = Math.min(W, H) * 0.18;
+  const maxOrbit = Math.min(W, H) * 0.38;
+  planetNodes = [];
+  cities.forEach((city, i) => {
+    const key = countryNode.code + '_' + city;
+    const cityDoc = (cityData[key] || null);
+    const cityRepos = (cityDoc?.repos || []);
+    const cityUsers = (cityDoc?.users || []);
+    const cStars = cityDoc?.stars ?? cityRepos.reduce((s, r) => s + (r.stars || r.stargazers_count || 0), 0);
+    const pR = 12 + Math.min(22, Math.max(cityUsers.length, cityRepos.length || 0) * 1.7);
+    const col = nameToColor(city);
+    // Orbit parameters
+    const orbitRX = lerp(minOrbit, maxOrbit, i / Math.max(1, cities.length - 1));
+    const orbitRY = lerp(minOrbit * 0.85, maxOrbit * 1.15, i / Math.max(1, cities.length - 1));
+    const phase = rnd(0, Math.PI * 2);
+    const speed = rnd(0.12, 0.22);
+    const node = {
+      city,
+      code: countryNode.code,
+      countryNode,
+      x: CX + Math.cos(phase) * orbitRX,
+      y: CY + Math.sin(phase) * orbitRY,
+      r: pR,
+      color: col,
+      rgb: hexToRgb(col),
+      users: cityUsers,
+      repos: cityRepos,
+      userCount: cityUsers.length,
+      repoCount: cityDoc?.repoCount || cityRepos.length,
+      stars: cStars,
+      loaded: cityData.hasOwnProperty(key),
+      loading: false,
+      pulsePhase: rnd(0, Math.PI * 2),
+      pulseSpeed: rnd(1, 2.5),
+      birthTime: time + i * .1,
+      orbitRX,
+      orbitRY,
+      phase,
+      speed
     };
+    planetNodes.push(node);
   });
 }
 
@@ -778,8 +806,11 @@ function buildPopulationField(planetNode){
   const padX=Math.max(18,Math.min(60,W*.035));
   const padTop=Math.max(78,Math.min(112,H*.13));
   const padBottom=Math.max(84,Math.min(126,H*.14));
-  const minX=padX, maxX=W-padX;
-  const minY=padTop, maxY=H-padBottom;
+  // Scatter users across a larger virtual canvas
+  const virtualW = W * 2.2;
+  const virtualH = H * 2.2;
+  const minX=padX, maxX=virtualW-padX;
+  const minY=padTop, maxY=virtualH-padBottom;
   const baseGap=count>900?8.2:(count>650?10.2:(count>420?12.4:14.5));
   const denseScale=count>900?.4:(count>700?.48:(count>500?.58:(count>320?.7:1)));
 
@@ -880,8 +911,11 @@ function buildRepoField(userNode){
   const padX=Math.max(20,Math.min(72,W*.04));
   const padTop=Math.max(84,Math.min(120,H*.14));
   const padBottom=Math.max(86,Math.min(130,H*.14));
-  const minX=padX, maxX=W-padX;
-  const minY=padTop, maxY=H-padBottom;
+  // Scatter repos across a larger virtual canvas
+  const virtualW = W * 2.2;
+  const virtualH = H * 2.2;
+  const minX=padX, maxX=virtualW-padX;
+  const minY=padTop, maxY=virtualH-padBottom;
   const baseGap=count>320?9.2:(count>220?11.5:14);
   const denseScale=count>360?.46:(count>260?.56:(count>180?.68:1));
 
@@ -1237,6 +1271,11 @@ function filterByCont(cont){
 // DRAW
 // ═══════════════════════════════════════════════════════════════════════════════
 function drawGlow(x,y,r,rgb,a){
+  // Clamp and validate values to prevent non-finite errors
+  x = Number.isFinite(x) ? x : 0;
+  y = Number.isFinite(y) ? y : 0;
+  r = Math.max(1, Math.min(r, 5000));
+  if (!Number.isFinite(r) || r <= 0) return;
   const g=ctx.createRadialGradient(x,y,0,x,y,r);
   g.addColorStop(0,`rgba(${rgb.r},${rgb.g},${rgb.b},${a+.05})`);
   g.addColorStop(.45,`rgba(${rgb.r},${rgb.g},${rgb.b},${a})`);
@@ -1244,6 +1283,11 @@ function drawGlow(x,y,r,rgb,a){
   ctx.beginPath();ctx.arc(x,y,r,0,Math.PI*2);ctx.fillStyle=g;ctx.fill();
 }
 function drawCore(x,y,r,rgb,a){
+  // Clamp and validate values to prevent non-finite errors
+  x = Number.isFinite(x) ? x : 0;
+  y = Number.isFinite(y) ? y : 0;
+  r = Math.max(1, Math.min(r, 5000));
+  if (!Number.isFinite(r) || r <= 0) return;
   const g=ctx.createRadialGradient(x-r*.25,y-r*.25,0,x,y,r);
   g.addColorStop(0,`rgba(255,255,255,${a})`);
   g.addColorStop(.3,`rgba(${rgb.r},${rgb.g},${rgb.b},${a})`);
@@ -1482,6 +1526,8 @@ function drawFrame(ts=performance.now()){
 
   // ── LEVEL 0: Galaxy clusters ──
   if(level===0){
+    const centerX = W/2;
+    const centerY = H/2;
     galaxyNodes.forEach(node=>{
       const age=time-node.birthTime; if(age<0)return;
       if(!countryMatchesSearch(node)) return;
@@ -1490,6 +1536,27 @@ function drawFrame(ts=performance.now()){
       const r=node.r*(1+pulse)*fade;
       const isHov=Math.hypot(mw.x-node.x,mw.y-node.y)<r+8/camZ;
       if(isHov)hoveredNode=node;
+
+      // Direction indicator: broken line from center to node
+      ctx.save();
+      ctx.beginPath();
+      ctx.setLineDash([8, 7]);
+      ctx.moveTo(centerX, centerY);
+      ctx.lineTo(node.x, node.y);
+      ctx.strokeStyle = `rgba(120,180,255,${.18*fade})`;
+      ctx.lineWidth = 1.2;
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      // Distance indicator
+      const dist = Math.hypot(node.x - centerX, node.y - centerY);
+      const midX = centerX + (node.x - centerX) * 0.55;
+      const midY = centerY + (node.y - centerY) * 0.55;
+      ctx.font = 'bold 10px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillStyle = `rgba(120,180,255,${.7*fade})`;
+      ctx.fillText(node.country + ' (' + Math.round(dist) + ')', midX, midY - 8);
+      ctx.restore();
 
       // galaxy dust ring
       if(node.weight>30 && perfMode!=='low'){
@@ -1645,51 +1712,20 @@ function drawFrame(ts=performance.now()){
 
     const denseRepos=repoStars.length>180;
     repoStars.forEach(node=>{
-      if(!repoMatchesSearch(node.repo)) return;
-      const age=time-node.birthTime; if(age<0)return;
-      const fade=Math.min(1,age/.5);
-      const pulse=Math.sin(time*node.pulseSpeed+node.pulsePhase)*.1;
-      const r=node.r*(1+pulse)*fade;
-      const isHov=Math.hypot(mw.x-node.x,mw.y-node.y)<r+8/camZ;
-      if(isHov)hoveredNode=node;
-
-      drawGlow(node.x,node.y,r*(isHov?4.5:3.2),node.rgb,(isHov?.22:.12)*fade);
-      drawCore(node.x,node.y,r,node.rgb,.9*fade);
-
-      if(isHov){
-        ctx.beginPath();ctx.arc(node.x,node.y,r+5,0,Math.PI*2);
-        ctx.strokeStyle='rgba(255,255,255,.3)';ctx.lineWidth=.8;ctx.stroke();
-      }
-
-      const showName=isHov||(!denseRepos&&camZ>.58&&r*camZ>9);
-      const showMeta=isHov||(!denseRepos&&camZ>.74&&r*camZ>11&&repoStars.length<140);
-      if(showName){
-        const fs=Math.max(8,Math.min(11,r*.55));
-        ctx.font=fs+'px monospace';ctx.textAlign='center';
-        ctx.fillStyle=`rgba(255,255,255,${(isHov?.85:.35)*fade})`;
-        ctx.fillText(node.repo.name,node.x,node.y+r+13);
-      }
-      if(showMeta){
-        ctx.font='8px monospace';
-        ctx.fillStyle=`rgba(255,255,255,${.2*fade})`;
-        ctx.fillText('⭐ '+(node.repo.stars??node.repo.stargazers_count??0).toLocaleString(),node.x,node.y+r+23);
-      }
-    });
-  }
-
-  ctx.restore();
-
-  // ── Tooltip ──
-  updateTooltip();
-  if(!paused) requestAnimationFrame(drawFrame);
-  else setTimeout(drawFrame,50);
-}
-
-function updateTooltip(){
-  const tt=document.getElementById('tooltip');
-  if(!hoveredNode){tt.style.display='none';return;}
-  tt.style.display='block';
-
+      const moonR = 6;
+      const moonOrbit = r + 12;
+      const moonAngle = angle + Math.PI / 2;
+      const moonX = node.x + Math.cos(moonAngle) * moonOrbit;
+      const moonY = node.y + Math.sin(moonAngle) * moonOrbit;
+      ctx.beginPath();
+      ctx.arc(moonX, moonY, moonR, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(255,180,60,${.22 * fade})`;
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(moonX, moonY, moonR, 0, Math.PI * 2);
+      ctx.strokeStyle = `rgba(255,180,60,${.45 * fade})`;
+      ctx.lineWidth = 1.1;
+      ctx.stroke();
   let name='',rows=[],langs=[],hint='';
 
   if(level===0){
@@ -1738,10 +1774,10 @@ function updateTooltip(){
   }
 
   document.getElementById('tt-name').textContent=name;
-  document.getElementById('tt-rows').innerHTML=rows.map(([k,v])=>
-    `<div class="tt-row"><span class="tt-k">${k}</span><span class="tt-v">${String(v).substring(0,40)}</span></div>`
-  ).join('');
-  document.getElementById('tt-langs').innerHTML=langs.map(([l,c])=>
+  document.getElementById('tt-rows').innerHTML = rows.map(([k, v]) => {
+    return `<div class="tt-row"><span class="tt-k">${k}</span><span class="tt-v">${String(v).substring(0,40)}</span></div>`;
+  }).join('');
+  document.getElementById('tt-langs').innerHTML = langs.map(([l, c]) =>
     `<div class="tt-lang-dot"><div class="tt-ld" style="background:${LANG_COLORS[l]||'#aaa'}"></div>${l} ${c}</div>`
   ).join('');
   document.getElementById('tt-hint').textContent=hint;
