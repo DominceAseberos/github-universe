@@ -1,13 +1,13 @@
 # GitHub Universe — Current Setup
 
 [![Data Update Workflow](https://github.com/DominceAseberos/github-universe/actions/workflows/update.yml/badge.svg)](https://github.com/DominceAseberos/github-universe/actions/workflows/update.yml)
-![Country Coverage](https://img.shields.io/badge/Coverage-12%2F195-3b82f6)
+![Country Coverage](https://img.shields.io/badge/Coverage-14%2F195-3b82f6)
 
 Interactive GitHub data universe with a static-data pipeline and 4-level drill-down visualization.
 
 ## Country coverage progress
 
-Progress: `12 / 195` countries (`6.15%`)
+Progress: `14 / 195` countries (`7.18%`)
 
 `[███░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░]`
 
@@ -39,7 +39,8 @@ This project maps public GitHub activity into an explorable universe:
 - Live FPS HUD displays frame rate + active performance mode.
 
 ### Current dataset snapshot
-- Active built countries in this repo: `PH`, `DE`, `SG`.
+Active built countries in this repo:
+`DE`, `JP`, `PH`, `SG`, `IN`, `BR`, `CN`, `CA`, `RU`, `AU`, `FR`, `KR`, `GB`, `US`.
 - Overview metrics are sourced from `data/index.json`.
 
 ## Deployment state

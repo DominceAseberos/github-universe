@@ -379,5 +379,48 @@ def main():
     log.info(f"Files ready in {OUT_DIR}/")
 
 
+
+def update_countries_list_md(index):
+    path = Path("countries_list.md")
+    # Use canonical country list from COUNTRY_NAMES
+    all_codes = list(COUNTRY_NAMES.keys())
+    scraped = {c["code"]: c["users"] for c in index.get("countries", [])}
+    lines = ["# Supported Countries (from scraper.py)\n", "\n"]
+    lines.append(f"Current configured list count: **{len(all_codes)}**\n\n")
+    for code in all_codes:
+        name = COUNTRY_NAMES.get(code, code)
+        if code in scraped:
+            lines.append(f"- `{code}` — {name} — {scraped[code]} users\n")
+        else:
+            lines.append(f"- `{code}` — {name} — not scraped\n")
+    path.write_text("".join(lines), encoding="utf-8")
+    log.info(f"countries_list.md updated with {len(all_codes)} countries.")
+
+def update_readme_dataset_snapshot(index):
+    readme_path = Path("README.md")
+    if not readme_path.exists():
+        log.info("README.md not found — skipping dataset snapshot update")
+        return
+    text = readme_path.read_text(encoding="utf-8")
+    countries = index.get("countries", [])
+    codes = [c["code"] for c in countries]
+    codes_str = ", ".join(f"`{code}`" for code in codes)
+    # Replace the dataset snapshot section
+    pattern = r"(### Current dataset snapshot\n)(.*?)(- Overview metrics are sourced from `data/index.json`.)"
+    replacement = rf"\1Active built countries in this repo:\n{codes_str}.\n\3"
+    import re
+    text = re.sub(pattern, replacement, text, flags=re.DOTALL)
+    readme_path.write_text(text, encoding="utf-8")
+    log.info("README.md dataset snapshot updated.")
+
 if __name__ == "__main__":
     main()
+    # After build, update countries_list.md and README.md dataset snapshot
+    index_path = OUT_DIR / "index.json"
+    if index_path.exists():
+        try:
+            index = json.loads(index_path.read_text())
+            update_countries_list_md(index)
+            update_readme_dataset_snapshot(index)
+        except Exception as e:
+            log.warning(f"Could not update countries_list.md or README.md: {e}")

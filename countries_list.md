@@ -1,164 +1,84 @@
 # Supported Countries (from scraper.py)
 
-Current configured list count: **160**
+Current configured list count: **80**
 
-- `US` — United States
-- `CN` — China
-- `IN` — India
-- `DE` — Germany
-- `GB` — United Kingdom
-- `BR` — Brazil
-- `FR` — France
-- `CA` — Canada
-- `RU` — Russia
-- `JP` — Japan
-- `KR` — South Korea
-- `AU` — Australia
-- `NL` — Netherlands
-- `PL` — Poland
-- `ES` — Spain
-- `IT` — Italy
-- `SE` — Sweden
-- `CH` — Switzerland
-- `UA` — Ukraine
-- `AR` — Argentina
-- `ID` — Indonesia
-- `TR` — Turkey
-- `PT` — Portugal
-- `PK` — Pakistan
-- `MX` — Mexico
-- `CZ` — Czech Republic
-- `BE` — Belgium
-- `DK` — Denmark
-- `SG` — Singapore
-- `FI` — Finland
-- `NO` — Norway
-- `AT` — Austria
-- `IL` — Israel
-- `TW` — Taiwan
-- `NG` — Nigeria
-- `RO` — Romania
-- `GR` — Greece
-- `HU` — Hungary
-- `EG` — Egypt
-- `VN` — Vietnam
-- `IR` — Iran
-- `CO` — Colombia
-- `ZA` — South Africa
-- `PH` — Philippines
-- `TH` — Thailand
-- `NZ` — New Zealand
-- `MY` — Malaysia
-- `CL` — Chile
-- `BD` — Bangladesh
-- `MA` — Morocco
-- `PE` — Peru
-- `BG` — Bulgaria
-- `HR` — Croatia
-- `SK` — Slovakia
-- `RS` — Serbia
-- `KE` — Kenya
-- `BY` — Belarus
-- `LT` — Lithuania
-- `EE` — Estonia
-- `DZ` — Algeria
-- `IE` — Ireland
-- `LK` — Sri Lanka
-- `TN` — Tunisia
-- `JO` — Jordan
-- `LB` — Lebanon
-- `GE` — Georgia
-- `GH` — Ghana
-- `KZ` — Kazakhstan
-- `EC` — Ecuador
-- `BO` — Bolivia
-- `VE` — Venezuela
-- `UY` — Uruguay
-- `NP` — Nepal
-- `LV` — Latvia
-- `SI` — Slovenia
-- `LU` — Luxembourg
-- `CR` — Costa Rica
-- `CM` — Cameroon
-- `ET` — Ethiopia
-- `AE` — UAE
-- `SA` — Saudi Arabia
-- `KW` — Kuwait
-- `CY` — Cyprus
-- `PA` — Panama
-- `DO` — Dominican Republic
-- `GT` — Guatemala
-- `HN` — Honduras
-- `SV` — El Salvador
-- `NI` — Nicaragua
-- `PY` — Paraguay
-- `UG` — Uganda
-- `ZM` — Zambia
-- `ZW` — Zimbabwe
-- `AM` — Armenia
-- `AZ` — Azerbaijan
-- `MD` — Moldova
-- `BA` — Bosnia
-- `MK` — North Macedonia
-- `AL` — Albania
-- `ME` — Montenegro
-- `IS` — Iceland
-- `MT` — Malta
-- `BH` — Bahrain
-- `QA` — Qatar
-- `OM` — Oman
-- `BN` — Brunei
-- `KH` — Cambodia
-- `MN` — Mongolia
-- `PS` — Palestine
-- `MM` — Myanmar
-- `LA` — Laos
-- `KG` — Kyrgyzstan
-- `TJ` — Tajikistan
-- `AF` — Afghanistan
-- `LR` — Liberia
-- `SL` — Sierra Leone
-- `GN` — Guinea
-- `ML` — Mali
-- `NE` — Niger
-- `TD` — Chad
-- `BJ` — Benin
-- `TG` — Togo
-- `BF` — Burkina Faso
-- `MR` — Mauritania
-- `BI` — Burundi
-- `BW` — Botswana
-- `NA` — Namibia
-- `GA` — Gabon
-- `MV` — Maldives
-- `FJ` — Fiji
-- `PG` — Papua New Guinea
-- `WS` — Samoa
-- `VU` — Vanuatu
-- `TO` — Tonga
-- `JM` — Jamaica
-- `TT` — Trinidad
-- `BB` — Barbados
-- `AD` — Andorra
-- `LI` — Liechtenstein
-- `MC` — Monaco
-- `SM` — San Marino
-- `XK` — Kosovo
-- `BZ` — Belize
-- `SR` — Suriname
-- `GY` — Guyana
-- `LY` — Libya
-- `SD` — Sudan
-- `SO` — Somalia
-- `YE` — Yemen
-- `IQ` — Iraq
-- `SY` — Syria
-- `CU` — Cuba
-- `HT` — Haiti
-- `RW` — Rwanda
-- `AO` — Angola
-- `MZ` — Mozambique
-- `MG` — Madagascar
-- `TZ` — Tanzania
-- `CI` — Ivory Coast
-- `SN` — Senegal
+- `US` — United States — 375 users
+- `CN` — China — 14946 users
+- `IN` — India — 13796 users
+- `DE` — Germany — 51086 users
+- `GB` — United Kingdom — 312 users
+- `BR` — Brazil — 8495 users
+- `FR` — France — 4257 users
+- `CA` — Canada — 9055 users
+- `RU` — Russia — 5494 users
+- `JP` — Japan — 24174 users
+- `KR` — South Korea — 925 users
+- `AU` — Australia — 4191 users
+- `NL` — Netherlands — not scraped
+- `PL` — Poland — not scraped
+- `ES` — Spain — not scraped
+- `IT` — Italy — not scraped
+- `SE` — Sweden — not scraped
+- `CH` — Switzerland — not scraped
+- `UA` — Ukraine — not scraped
+- `AR` — Argentina — not scraped
+- `ID` — Indonesia — not scraped
+- `TR` — Turkey — not scraped
+- `PT` — Portugal — not scraped
+- `PK` — Pakistan — not scraped
+- `MX` — Mexico — not scraped
+- `CZ` — Czech Republic — not scraped
+- `BE` — Belgium — not scraped
+- `DK` — Denmark — not scraped
+- `SG` — Singapore — 16493 users
+- `FI` — Finland — not scraped
+- `NO` — Norway — not scraped
+- `AT` — Austria — not scraped
+- `IL` — Israel — not scraped
+- `TW` — Taiwan — not scraped
+- `NG` — Nigeria — not scraped
+- `RO` — Romania — not scraped
+- `GR` — Greece — not scraped
+- `HU` — Hungary — not scraped
+- `EG` — Egypt — not scraped
+- `VN` — Vietnam — not scraped
+- `IR` — Iran — not scraped
+- `CO` — Colombia — not scraped
+- `ZA` — South Africa — not scraped
+- `PH` — Philippines — 29582 users
+- `TH` — Thailand — not scraped
+- `NZ` — New Zealand — not scraped
+- `MY` — Malaysia — not scraped
+- `CL` — Chile — not scraped
+- `BD` — Bangladesh — not scraped
+- `MA` — Morocco — not scraped
+- `PE` — Peru — not scraped
+- `BG` — Bulgaria — not scraped
+- `HR` — Croatia — not scraped
+- `SK` — Slovakia — not scraped
+- `RS` — Serbia — not scraped
+- `KE` — Kenya — not scraped
+- `BY` — Belarus — not scraped
+- `LT` — Lithuania — not scraped
+- `EE` — Estonia — not scraped
+- `DZ` — Algeria — not scraped
+- `IE` — Ireland — not scraped
+- `LK` — Sri Lanka — not scraped
+- `TN` — Tunisia — not scraped
+- `JO` — Jordan — not scraped
+- `LB` — Lebanon — not scraped
+- `GE` — Georgia — not scraped
+- `GH` — Ghana — not scraped
+- `KZ` — Kazakhstan — not scraped
+- `EC` — Ecuador — not scraped
+- `BO` — Bolivia — not scraped
+- `VE` — Venezuela — not scraped
+- `UY` — Uruguay — not scraped
+- `NP` — Nepal — not scraped
+- `LV` — Latvia — not scraped
+- `SI` — Slovenia — not scraped
+- `LU` — Luxembourg — not scraped
+- `CR` — Costa Rica — not scraped
+- `AE` — UAE — not scraped
+- `SA` — Saudi Arabia — not scraped
+- `PS` — Palestine — not scraped

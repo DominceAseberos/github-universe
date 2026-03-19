@@ -1,3 +1,15 @@
+// Deterministic seeded random number generator
+function seededRandom(seed) {
+  let s = seed >>> 0;
+  return function() {
+    // Xorshift32
+    s ^= s << 13;
+    s ^= s >>> 17;
+    s ^= s << 5;
+    // Convert to [0,1)
+    return ((s >>> 0) / 4294967296);
+  };
+}
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -323,6 +335,18 @@ canvas{position:fixed;inset:0;display:block;width:100%;height:100%}
 </div>
 
 <script>
+// Deterministic seeded random number generator
+function seededRandom(seed) {
+  let s = seed >>> 0;
+  return function() {
+    // Xorshift32
+    s ^= s << 13;
+    s ^= s >>> 17;
+    s ^= s << 5;
+    // Convert to [0,1)
+    return ((s >>> 0) / 4294967296);
+  };
+}
 // ═══════════════════════════════════════════════════════════════════════════════
 // WORLD DATA — 195 countries with continent, flag, approx GitHub weight
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -1710,85 +1734,109 @@ function drawFrame(ts=performance.now()){
       ctx.fillText(searchQuery?'no repos match this search':'no repos found for this user',W/2,H/2-8);
     }
 
-    const denseRepos=repoStars.length>180;
-    repoStars.forEach(node=>{
-      const moonR = 6;
-      const moonOrbit = r + 12;
-      const moonAngle = angle + Math.PI / 2;
-      const moonX = node.x + Math.cos(moonAngle) * moonOrbit;
-      const moonY = node.y + Math.sin(moonAngle) * moonOrbit;
-      ctx.beginPath();
-      ctx.arc(moonX, moonY, moonR, 0, Math.PI * 2);
-      ctx.fillStyle = `rgba(255,180,60,${.22 * fade})`;
-      ctx.fill();
-      ctx.beginPath();
-      ctx.arc(moonX, moonY, moonR, 0, Math.PI * 2);
-      ctx.strokeStyle = `rgba(255,180,60,${.45 * fade})`;
-      ctx.lineWidth = 1.1;
-      ctx.stroke();
-  let name='',rows=[],langs=[],hint='';
+    const denseRepos = repoStars.length > 180;
+    repoStars.forEach(node => {
+      if (!repoMatchesSearch(node.repo)) return;
+      const age = time - node.birthTime; if (age < 0) return;
+      const fade = Math.min(1, age / .5);
+      const pulse = Math.sin(time * node.pulseSpeed + node.pulsePhase) * .1;
+      const r = node.r * (1 + pulse) * fade;
+      const isHov = Math.hypot(mw.x - node.x, mw.y - node.y) < r + 8 / camZ;
+      if (isHov) hoveredNode = node;
 
-  if(level===0){
-    const n=hoveredNode;
-    const d=countryData[n.code]||{};
-    name=n.flag+' '+n.country;
-    rows=[
-      ['Continent',CONTINENT_NAMES[n.continent]||n.continent],
-      ['Public repos',d.repoCount?fmt(d.repoCount):'loading…'],
-      ['Total stars',d.totalStars?fmt(d.totalStars):'—'],
-      ['Contributors',d.devs?fmt(d.devs):'—'],
-      ['Top language',d.topLang||'—'],
-    ];
-    langs=Object.entries(d.langs||{}).sort((a,b)=>b[1]-a[1]).slice(0,5);
-    hint='click to explore';
-    if(!n.loaded&&!n.loading) loadCountryData(n);
-  } else if(level===1){
-    const p=hoveredNode;
-    name='🏙 '+p.city;
-    rows=[
-      ['Country',activeCountry.flag+' '+activeCountry.country],
-      ['Users',p.userCount||p.users?.length||0],
-      ['Repos (sample)',p.repoCount||p.repos.length],
-      ['Stars',fmt(p.stars)],
-    ];
-    hint='click to see users';
-  } else if(level===2){
-    const u=hoveredNode;
-    name='👤 @'+u.login;
-    rows=[
-      ['City',activePlanet.city],
-      ['Location',u.location||'—'],
-      ['Repos',u.repoCount||0],
-      ['Stars',fmt(u.stars||0)],
-    ];
-    hint='click to see repos';
-  } else if(level===3){
-    const r=hoveredNode.repo;
-    name=(LANG_COLORS[r.language]?'':'')+'  '+r.full_name;
-    rows=[
-      ['Language',r.language||'Unknown'],
-      ['Stars',fmt(r.stars??r.stargazers_count??0)],
-      ['Forks',fmt(r.forks??r.forks_count??0)],
-      ['Description',r.description||'—'],
-    ];
+      drawGlow(node.x, node.y, r * (isHov ? 4.5 : 3.2), node.rgb, (isHov ? .22 : .12) * fade);
+      drawCore(node.x, node.y, r, node.rgb, .9 * fade);
+
+      if (isHov) {
+        ctx.beginPath(); ctx.arc(node.x, node.y, r + 5, 0, Math.PI * 2);
+        ctx.strokeStyle = 'rgba(255,255,255,.3)'; ctx.lineWidth = .8; ctx.stroke();
+      }
+
+      if (isHov || (!denseRepos && camZ > .55 && r * camZ > 8)) {
+        const fs = Math.max(8, Math.min(11, r * .55));
+        ctx.font = fs + 'px monospace'; ctx.textAlign = 'center';
+        ctx.fillStyle = `rgba(255,255,255,${(isHov ? .85 : .36) * fade})`;
+        ctx.fillText(node.repo.name, node.x, node.y + r + 13);
+        ctx.font = '8px monospace';
+        ctx.fillStyle = `rgba(255,255,255,${.2 * fade})`;
+        ctx.fillText('⭐ ' + fmt(node.repo.stars ?? node.repo.stargazers_count ?? 0), node.x, node.y + r + 23);
+      }
+    });
   }
 
-  document.getElementById('tt-name').textContent=name;
-  document.getElementById('tt-rows').innerHTML = rows.map(([k, v]) => {
-    return `<div class="tt-row"><span class="tt-k">${k}</span><span class="tt-v">${String(v).substring(0,40)}</span></div>`;
-  }).join('');
-  document.getElementById('tt-langs').innerHTML = langs.map(([l, c]) =>
-    `<div class="tt-lang-dot"><div class="tt-ld" style="background:${LANG_COLORS[l]||'#aaa'}"></div>${l} ${c}</div>`
-  ).join('');
-  document.getElementById('tt-hint').textContent=hint;
+  ctx.restore();
 
-  // position
-  let tx=mx+18,ty=my-10;
-  const tw=230,tH=220;
-  if(tx+tw>W-16)tx=mx-tw-14;
-  if(ty+tH>H-24)ty=H-tH-24;
-  if(ty<10)ty=10;
-  tt.style.left=tx+'px';tt.style.top=ty+'px';
+  // ── TOOLTIP ──
+  const tt = document.getElementById('tooltip');
+  if(hoveredNode){
+    tt.style.display='block';
+    let name='', rows=[], langs=[], hint='';
+
+    if(level===0){
+      const n=hoveredNode;
+      const d=countryData[n.code]||{};
+      name=n.flag+' '+n.country;
+      rows=[
+        ['Continent', CONTINENT_NAMES[n.continent]||n.continent],
+        ['Public repos', d.repoCount ? fmt(d.repoCount) : 'loading…'],
+        ['Total stars', d.totalStars ? fmt(d.totalStars) : '—'],
+        ['Contributors', d.devs ? fmt(d.devs) : '—'],
+        ['Top language', d.topLang||'—'],
+      ];
+      langs=Object.entries(d.langs||{}).sort((a,b)=>b[1]-a[1]).slice(0,5);
+      hint='click to explore';
+      if(!n.loaded&&!n.loading) loadCountryData(n);
+    } else if(level===1){
+      const p=hoveredNode;
+      name='🏙 '+p.city;
+      rows=[
+        ['Country', activeCountry.flag+' '+activeCountry.country],
+        ['Users', p.userCount||(p.users?p.users.length:0)||0],
+        ['Repos (sample)', p.repoCount||p.repos.length],
+        ['Stars', fmt(p.stars)],
+      ];
+      hint='click to see users';
+    } else if(level===2){
+      const u=hoveredNode;
+      name='👤 @'+u.login;
+      rows=[
+        ['City', activePlanet.city],
+        ['Location', u.location||'—'],
+        ['Repos', u.repoCount||0],
+        ['Stars', fmt(u.stars||0)],
+      ];
+      hint='click to see repos';
+    } else if(level===3){
+      const repo=hoveredNode.repo;
+      name='  '+(repo?.full_name||'');
+      rows=[
+        ['Language', repo?.language||'Unknown'],
+        ['Stars', fmt(repo?.stars ?? repo?.stargazers_count ?? 0)],
+        ['Forks', fmt(repo?.forks ?? repo?.forks_count ?? 0)],
+        ['Description', repo?.description||'—'],
+      ];
+    }
+
+    document.getElementById('tt-name').textContent=name;
+    document.getElementById('tt-rows').innerHTML=rows.map(([k,v])=>
+      `<div class="tt-row"><span class="tt-k">${k}</span><span class="tt-v">${String(v).substring(0,40)}</span></div>`
+    ).join('');
+    document.getElementById('tt-langs').innerHTML=langs.map(([l,c])=>
+      `<div class="tt-lang-dot"><div class="tt-ld" style="background:${LANG_COLORS[l]||'#aaa'}"></div>${l} ${c}</div>`
+    ).join('');
+    document.getElementById('tt-hint').textContent=hint;
+
+    let tx=mx+18, ty=my-10;
+    if(tx+230>W-16) tx=mx-244;
+    if(ty+220>H-24) ty=H-244;
+    if(ty<10) ty=10;
+    tt.style.left=tx+'px';
+    tt.style.top=ty+'px';
+  } else {
+    tt.style.display='none';
+  }
+
+  if(!paused) requestAnimationFrame(drawFrame);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
