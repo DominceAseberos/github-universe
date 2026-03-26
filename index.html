@@ -652,8 +652,8 @@ function buildGalaxy(){
   // Scatter nodes in a circular layout around the center
   const centerX = W / 2;
   const centerY = H / 2;
-  const minRadius = 180;
-  const maxRadius = Math.min(W, H) * 0.38;
+  const minRadius = Math.min(W, H) * 1;
+  const maxRadius = Math.min(W, H) * 2;
   galaxyNodes = [];
   filtered.forEach((c, i) => {
     const w = c[4];
