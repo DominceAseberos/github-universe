@@ -649,40 +649,35 @@ function buildGalaxy(){
     (!filterContinent||c[2]===filterContinent) &&
     countryData[c[1]] // Only include if data exists for this country code
   );
-  const minGap=60, maxGap=120;
-  // Scatter nodes across a larger virtual canvas
-  const virtualW = W * 3;
-  const virtualH = H * 3;
-  const minX=80, maxX=virtualW-80;
-  const minY=80, maxY=virtualH-80;
-  const placed=[];
-  function canPlace(x,y,r,gap){
-    for(const p of placed){
-      const minD=p.r+r+gap;
-      const dx=x-p.x,dy=y-p.y;
-      if(dx*dx+dy*dy<minD*minD) return false;
-    }
-    return true;
-  }
-  galaxyNodes=[];
-  filtered.forEach((c,i)=>{
-    const w=c[4];
-    const r=10+w*.35;
-    const seed = hashString(c[1]);
-    const sr = seededRandom(seed);
-    let node=null;
-    for(let a=0;a<180;a++){
-      const x = minX + sr() * (maxX - minX);
-      const y = minY + sr() * (maxY - minY);
-      if(canPlace(x,y,r,minGap)){
-        node={country:c[0],code:c[1],continent:c[2],flag:c[3],weight:w,x,y,r,col:CONTINENT_COLORS[c[2]]||'#7a8899',rgb:hexToRgb(CONTINENT_COLORS[c[2]]||'#7a8899'),pulsePhase:sr()*Math.PI*2,pulseSpeed:1.5+sr()*1.5,birthTime:time+i*.015,norm:i/(filtered.length-1),loaded:false,loading:false};
-        break;
-      }
-    }
-    if(!node){
-      node={country:c[0],code:c[1],continent:c[2],flag:c[3],weight:w,x:minX+sr()*(maxX-minX),y:minY+sr()*(maxY-minY),r,col:CONTINENT_COLORS[c[2]]||'#7a8899',rgb:hexToRgb(CONTINENT_COLORS[c[2]]||'#7a8899'),pulsePhase:sr()*Math.PI*2,pulseSpeed:1.5+sr()*1.5,birthTime:time+i*.015,norm:i/(filtered.length-1),loaded:false,loading:false};
-    }
-    placed.push(node);
+  // Scatter nodes in a circular layout around the center
+  const centerX = W / 2;
+  const centerY = H / 2;
+  const minRadius = 180;
+  const maxRadius = Math.min(W, H) * 0.38;
+  galaxyNodes = [];
+  filtered.forEach((c, i) => {
+    const w = c[4];
+    const r = 10 + w * .35;
+    const angle = (2 * Math.PI * i) / filtered.length + seededRandom(hashString(c[1]))() * 0.5; // even + jitter
+    const radius = minRadius + (maxRadius - minRadius) * seededRandom(hashString(c[1]) + 1)();
+    const x = centerX + Math.cos(angle) * radius;
+    const y = centerY + Math.sin(angle) * radius;
+    const node = {
+      country: c[0],
+      code: c[1],
+      continent: c[2],
+      flag: c[3],
+      weight: w,
+      x, y, r,
+      col: CONTINENT_COLORS[c[2]] || '#7a8899',
+      rgb: hexToRgb(CONTINENT_COLORS[c[2]] || '#7a8899'),
+      pulsePhase: seededRandom(hashString(c[1]))() * Math.PI * 2,
+      pulseSpeed: 1.5 + seededRandom(hashString(c[1]) + 2)() * 1.5,
+      birthTime: time + i * .015,
+      norm: i / (filtered.length - 1),
+      loaded: false,
+      loading: false
+    };
     galaxyNodes.push(node);
   });
   // Set initial camera to center of visible screen
