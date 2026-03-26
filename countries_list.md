@@ -2,19 +2,19 @@
 
 Current configured list count: **80**
 
-- `US` — United States — 375 users
+- `US` — United States — 379 users
 - `CN` — China — 14946 users
 - `IN` — India — 13796 users
 - `DE` — Germany — 51086 users
 - `GB` — United Kingdom — 312 users
 - `BR` — Brazil — 8495 users
-- `FR` — France — 4257 users
+- `FR` — France — 14897 users
 - `CA` — Canada — 9055 users
 - `RU` — Russia — 5494 users
 - `JP` — Japan — 24174 users
-- `KR` — South Korea — 925 users
-- `AU` — Australia — 4191 users
-- `NL` — Netherlands — not scraped
+- `KR` — South Korea — 928 users
+- `AU` — Australia — 14996 users
+- `NL` — Netherlands — 257 users
 - `PL` — Poland — not scraped
 - `ES` — Spain — not scraped
 - `IT` — Italy — not scraped
@@ -45,7 +45,7 @@ Current configured list count: **80**
 - `IR` — Iran — not scraped
 - `CO` — Colombia — not scraped
 - `ZA` — South Africa — not scraped
-- `PH` — Philippines — 29582 users
+- `PH` — Philippines — 29681 users
 - `TH` — Thailand — not scraped
 - `NZ` — New Zealand — not scraped
 - `MY` — Malaysia — not scraped

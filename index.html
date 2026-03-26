@@ -645,7 +645,10 @@ function buildBgStars(){
 // ═══════════════════════════════════════════════════════════════════════════════
 function buildGalaxy(){
   buildBgStars();
-  const filtered=ACTIVE_COUNTRIES.filter(c=>!filterContinent||c[2]===filterContinent);
+  const filtered=ACTIVE_COUNTRIES.filter(c=>
+    (!filterContinent||c[2]===filterContinent) &&
+    countryData[c[1]] // Only include if data exists for this country code
+  );
   const minGap=60, maxGap=120;
   // Scatter nodes across a larger virtual canvas
   const virtualW = W * 3;
@@ -1335,6 +1338,9 @@ function seededUnit(seed,n){
 function clamp255(v){return Math.max(0,Math.min(255,Math.round(v)));}
 
 function buildCountrySpriteSvg(key, hex){
+  // Fallbacks for missing/invalid key or color
+  if (!key || typeof key !== 'string') key = 'XX';
+  if (!hex || typeof hex !== 'string') hex = '#7a8899';
   const seed=hashString(key);
   const rgb=hexToRgb(hex);
   const rBoost=.95+seededUnit(seed,1)*.5;
@@ -1442,14 +1448,22 @@ function buildCountrySpriteSvg(key, hex){
 }
 
 function getCountrySprite(key, hex){
+  // Fallbacks for missing/invalid key or color
+  if (!key || typeof key !== 'string') key = 'XX';
+  if (!hex || typeof hex !== 'string') hex = '#7a8899';
   const cacheKey=key+'|'+hex;
   if(countrySpriteCache.has(cacheKey)) return countrySpriteCache.get(cacheKey);
   const entry={img:null,ready:false};
   countrySpriteCache.set(cacheKey,entry);
-  const svg=buildCountrySpriteSvg(key, hex);
-  const img=new Image();
-  img.onload=()=>{entry.img=img;entry.ready=true;};
-  img.src='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(svg);
+  try {
+    const svg=buildCountrySpriteSvg(key, hex);
+    const img=new Image();
+    img.onload=()=>{entry.img=img;entry.ready=true;};
+    img.onerror=()=>{entry.img=null;entry.ready=true;}; // Prevent hang on error
+    img.src='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(svg);
+  } catch (e) {
+    entry.img=null; entry.ready=true;
+  }
   return entry;
 }
 
@@ -2099,27 +2113,18 @@ async function restorePersistedData(){
   // Narrow the galaxy to only countries that have real scraped data
   const indexCodes = new Set((index.countries||[]).map(c=>c.code));
   ACTIVE_COUNTRIES = COUNTRIES.filter(c => indexCodes.has(c[1]));
-  buildGalaxy(); // rebuild now that ACTIVE_COUNTRIES is set
-  updateOverview();
 
-  // Populate galaxy nodes with real stats from index
+  // Populate countryData with real stats from index
   (index.countries||[]).forEach(c=>{
-    const node=galaxyNodes.find(n=>n.code===c.code);
-    if(!node) return;
-    // scale node size by real repo count
-    const maxRepos=Math.max(...(index.countries||[]).map(x=>x.repos||1));
-    node.weight=Math.max(2, Math.round((c.repos/maxRepos)*100));
-    node.r=3+node.weight*.22;
-    // store summary so tooltip shows immediately without loading country file
     countryData[c.code]={
       repos:[], langs:{}, topLang:c.topLang||'Unknown',
       totalStars:c.stars||0, devs:c.users||0, repoCount:c.repos||0,
       userCount:c.users||0,
       cities:c.cities||[],
     };
-    node.loaded=false; // mark as summary-only; full load happens on click
   });
 
+  buildGalaxy(); // build after countryData is ready
   updateOverview();
   setStatus('✓ '+index.totalCountries+' countries · '+(index.totalRepos||0).toLocaleString()+' repos · built '+new Date(index.builtAt).toLocaleDateString());
 }
